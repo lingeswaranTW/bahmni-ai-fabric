@@ -1,0 +1,20 @@
+# Standalone development stack: the service plus its own Postgres. Real deployments use bahmni-docker.
+services:
+  bahmni-ai:
+    build: .
+    ports: ["8090:8090"]
+    environment:
+      AI_MODEL: ${AI_MODEL:-test}
+      OPENMRS_URL: ${OPENMRS_URL:-http://host.docker.internal:8080}
+      DATABASE_URL: postgresql+asyncpg://bahmni_ai:${BAHMNI_AI_DB_PASSWORD:-dev}@bahmni-ai-db:5432/bahmni_ai
+    volumes: ["./dev-config:/etc/bahmni_config/ai:ro"]
+    depends_on: [bahmni-ai-db]
+  bahmni-ai-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: bahmni_ai
+      POSTGRES_USER: bahmni_ai
+      POSTGRES_PASSWORD: ${BAHMNI_AI_DB_PASSWORD:-dev}
+    volumes: [bahmni-ai-db-data:/var/lib/postgresql/data]
+volumes:
+  bahmni-ai-db-data:

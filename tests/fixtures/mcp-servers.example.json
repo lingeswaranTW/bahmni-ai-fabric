@@ -1,0 +1,43 @@
+{
+  "mcpServers": {
+    "documents": {
+      "url": "${MCP_DOCUMENTS_URL}",
+      "transport": "streamable-http",
+      "auth": {"type": "bearer", "credentialRef": "MCP_DOCUMENTS_TOKEN"},
+      "requiredPrivilege": "AI: Search Documents",
+      "tools": {"allow": ["search_*", "get_*"], "default": "deny"}
+    },
+    "jira": {
+      "url": "${MCP_JIRA_URL}",
+      "transport": "streamable-http",
+      "auth": {"type": "bearer", "credentialRef": "MCP_JIRA_TOKEN"},
+      "requiredPrivilege": "AI: Read Jira",
+      "tools": {
+        "allow": ["search_*", "get_issue"],
+        "deny": ["delete_*"],
+        "overrides": {
+          "create_issue": {
+            "access": "write",
+            "confirm": true,
+            "requiredPrivilege": "AI: Create Jira Issue",
+            "argumentConstraints": {"project": ["BAH"]}
+          }
+        },
+        "default": "deny"
+      }
+    },
+    "openmrs": {
+      "url": "${MCP_OPENMRS_URL}",
+      "transport": "streamable-http",
+      "auth": {"type": "openmrs-session"},
+      "requiredPrivilege": "Get Patients",
+      "tools": {
+        "overrides": {
+          "search_patients": {"access": "read", "requiredPrivilege": "Get Patients"},
+          "create_patient": {"access": "write", "confirm": true, "requiredPrivilege": "Add Patients"}
+        },
+        "default": "deny"
+      }
+    }
+  }
+}
