@@ -2,6 +2,7 @@
 # If a copy of the MPL was not distributed with this file, You can obtain one at
 # https://www.bahmni.org/license/mplv2hd.
 
+import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, FastAPI
 
+from bahmni_ai import observability
 from bahmni_ai.agent.factory import build_agent
 from bahmni_ai.agent.service import ChatService
 from bahmni_ai.api import chat, health
@@ -30,6 +32,7 @@ def create_app(settings: Settings | None = None, *, chat_service: ChatService | 
     settings = settings or get_settings()
     configure_logging(settings.log_level)
     log = get_logger()
+    shutdown_telemetry = observability.setup(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -50,6 +53,9 @@ def create_app(settings: Settings | None = None, *, chat_service: ChatService | 
                     config, resolver, call_timeout_seconds=settings.mcp_call_timeout_seconds
                 )
                 await registry.start()
+                trusted = [n for n, c in config.mcpServers.items() if c.propagateTrace]
+                if trusted:
+                    log.info("trace context is sent to these MCP servers", servers=trusted)
                 stores = await _stores(settings, log)
                 closers.append(stores.aclose)
                 app.state.chat_service = ChatService(
@@ -65,6 +71,7 @@ def create_app(settings: Settings | None = None, *, chat_service: ChatService | 
                     await close()
                 if registry is not None:
                     await registry.close()
+                await asyncio.to_thread(shutdown_telemetry)  # bounded; never raises
         log.info("bahmni-ai stopped")
 
     app = FastAPI(title="bahmni-ai", lifespan=lifespan)
@@ -72,6 +79,7 @@ def create_app(settings: Settings | None = None, *, chat_service: ChatService | 
     root.include_router(health.router)
     root.include_router(chat.router)
     app.include_router(root)
+    observability.instrument_app(app)
     return app
 
 

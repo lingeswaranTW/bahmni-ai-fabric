@@ -18,6 +18,14 @@ dependencies = [
     "asyncpg>=0.32.0",
 ]
 
+[project.optional-dependencies]
+# Observability (docs/OBSERVABILITY.md). Optional: without it telemetry is a no-op.
+telemetry = [
+    "opentelemetry-sdk>=1.30",
+    "opentelemetry-exporter-otlp-proto-http>=1.30",
+    "opentelemetry-instrumentation-fastapi>=0.51b0",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
@@ -29,6 +37,9 @@ dev = [
     "types-jsonschema>=4.20.0",
     "fastmcp-slim[server]>=4.1.0",
     "aiosqlite>=0.22.1",
+    "opentelemetry-sdk>=1.30",
+    "opentelemetry-exporter-otlp-proto-http>=1.30",
+    "opentelemetry-instrumentation-fastapi>=0.51b0",
 ]
 
 [build-system]
@@ -58,3 +69,4 @@ ignore = ["S104", "B008"]
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S", "E501", "E702"]
 "spike/*" = ["S", "E", "B", "I"]
+"deploy/*" = ["S603", "S310", "E501"]  # operator scripts: fixed docker/compose commands and a loopback UI

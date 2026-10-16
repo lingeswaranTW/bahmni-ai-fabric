@@ -27,6 +27,7 @@ from bahmni_ai.mcp.auth import AuthStrategy, build_strategy
 from bahmni_ai.mcp.config import McpConfig, ServerConfig
 from bahmni_ai.mcp.credentials import CredentialResolver
 from bahmni_ai.mcp.policy import ServerToolset
+from bahmni_ai.observability import record_mcp_unavailable
 
 log = get_logger("bahmni_ai.mcp")
 
@@ -106,4 +107,5 @@ class McpRegistry:
                     # One failing server must not take the others down. Never log headers or URLs with secrets.
                     log.warning("mcp_server_unavailable", server=name, error=exc.__class__.__name__)
                     opened.unavailable.append(name)
+                    record_mcp_unavailable(name, exc.__class__.__name__)
             yield opened

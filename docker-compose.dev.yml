@@ -6,6 +6,8 @@ services:
     environment:
       AI_MODEL: ${AI_MODEL:-test}
       OPENMRS_URL: ${OPENMRS_URL:-http://host.docker.internal:8080}
+      TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       DATABASE_URL: postgresql+asyncpg://bahmni_ai:${BAHMNI_AI_DB_PASSWORD:-dev}@bahmni-ai-db:5432/bahmni_ai
     volumes: ["./dev-config:/etc/bahmni_config/ai:ro"]
     depends_on: [bahmni-ai-db]

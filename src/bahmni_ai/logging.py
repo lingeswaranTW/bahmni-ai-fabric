@@ -35,6 +35,13 @@ def _redact_processor(_: Any, __: str, event_dict: MutableMapping[str, Any]) -> 
     }
 
 
+def _trace_processor(_: Any, __: str, event_dict: MutableMapping[str, Any]) -> MutableMapping[str, Any]:
+    """Adds trace_id/span_id when telemetry is on, so a log or audit line can be found in the trace backend."""
+    from bahmni_ai.observability import current_trace_ids
+
+    return {**event_dict, **current_trace_ids()}
+
+
 def configure_logging(level: str = "info") -> None:
     logging.basicConfig(stream=sys.stdout, level=level.upper(), format="%(message)s")
     structlog.configure(
@@ -43,6 +50,7 @@ def configure_logging(level: str = "info") -> None:
             structlog.processors.add_log_level,
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.format_exc_info,
+            _trace_processor,
             _redact_processor,
             structlog.processors.JSONRenderer(),
         ],

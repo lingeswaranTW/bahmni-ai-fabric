@@ -18,10 +18,12 @@ from pydantic_ai import RunContext
 from pydantic_ai.exceptions import ApprovalRequired
 from pydantic_ai.toolsets import ToolsetTool, WrapperToolset
 
+from bahmni_ai import observability
 from bahmni_ai.agent.deps import AgentDeps
 from bahmni_ai.audit.log import Decision, Outcome, ToolAudit, hash_arguments
 from bahmni_ai.logging import get_logger, redact_value
 from bahmni_ai.mcp.config import TOOL_SEPARATOR, ServerConfig, matches
+from bahmni_ai.observability import propagation_scope
 
 log = get_logger("bahmni_ai.policy")
 
@@ -71,7 +73,9 @@ class ServerToolset(WrapperToolset[AgentDeps]):
 
     async def get_tools(self, ctx: RunContext[AgentDeps]) -> dict[str, ToolsetTool[AgentDeps]]:
         out: dict[str, ToolsetTool[AgentDeps]] = {}
-        for name, tool in (await super().get_tools(ctx)).items():
+        with propagation_scope(self.config.propagateTrace):  # discovery of a server we may talk trace context to
+            discovered = await super().get_tools(ctx)
+        for name, tool in discovered.items():
             annotations = (tool.tool_def.metadata or {}).get("annotations")
             rule = resolve_tool(self.config, name, annotations)
             if rule is None:
@@ -93,6 +97,7 @@ class ServerToolset(WrapperToolset[AgentDeps]):
         started: float = 0.0,
     ) -> None:
         u = ctx.deps.user
+        observability.record_tool_outcome(self.server, tool, decision, outcome)
         ctx.deps.audit.record(ToolAudit(
             request_id=u.request_id, username=u.username, user_uuid=u.user_uuid, server=self.server, tool=tool,
             access=rule.access if rule else "unknown", decision=decision, reason=reason, outcome=outcome,
@@ -144,7 +149,8 @@ class ServerToolset(WrapperToolset[AgentDeps]):
         inner = replace(tool, tool_def=replace(tool.tool_def, name=original))
         try:
             async with asyncio.timeout(ctx.deps.call_timeout_seconds):
-                result = await super().call_tool(original, tool_args, replace(ctx, tool_name=original), inner)
+                with propagation_scope(self.config.propagateTrace):
+                    result = await super().call_tool(original, tool_args, replace(ctx, tool_name=original), inner)
         except TimeoutError:
             self._audit(ctx, original, rule, "allowed", tool_args, outcome="timeout", started=started)
             log.warning("tool_timeout", server=self.server, tool=original)

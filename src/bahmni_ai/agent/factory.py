@@ -9,6 +9,7 @@ from pydantic_ai.models import Model
 
 from bahmni_ai.agent.deps import AgentDeps
 from bahmni_ai.agent.prompts import SYSTEM_PROMPT
+from bahmni_ai.observability import instrumentation_for_agent
 
 
 class ModelConfigError(RuntimeError):
@@ -25,7 +26,7 @@ def build_agent(
     implementer's responsibility; see docs/OPERATIONS.md.
     """
     try:
-        return Agent(
+        agent: Agent[AgentDeps, str | DeferredToolRequests] = Agent(
             model,
             deps_type=AgentDeps,
             output_type=[str, DeferredToolRequests],
@@ -33,5 +34,7 @@ def build_agent(
             model_settings={"timeout": request_timeout_seconds},
             retries=1,
         )
+        agent.instrument = instrumentation_for_agent()  # content-free settings, or False when telemetry is off
+        return agent
     except Exception as exc:  # unknown provider, missing key, ... (never echo the exception: it may hold keys)
         raise ModelConfigError(f"Cannot initialise AI model '{model}': {exc.__class__.__name__}") from exc

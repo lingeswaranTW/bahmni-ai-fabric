@@ -1,0 +1,19 @@
+{
+  "mode": "ok",
+  "turns": 20,
+  "ok_turns": 20,
+  "error_events": 0,
+  "first_error": [],
+  "audit_records": 20,
+  "audit_expected": 20,
+  "latency_ms": {
+    "median": 17.9,
+    "p95": 42.0,
+    "max": 43.1
+  },
+  "shutdown_seconds": 13.18,
+  "rss_mb_before_after": [
+    131.7,
+    150.4
+  ]
+}

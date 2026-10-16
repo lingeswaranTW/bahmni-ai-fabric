@@ -1,0 +1,26 @@
+{
+  "mode": "raising-start",
+  "turns": 40,
+  "ok_turns": 0,
+  "error_events": 40,
+  "first_error": [
+    [
+      {
+        "code": "internal_error",
+        "message": "Something went wrong."
+      }
+    ]
+  ],
+  "audit_records": 0,
+  "audit_expected": 40,
+  "latency_ms": {
+    "median": 572.8,
+    "p95": 590.7,
+    "max": 594.2
+  },
+  "shutdown_seconds": 0.0,
+  "rss_mb_before_after": [
+    127.6,
+    158.5
+  ]
+}

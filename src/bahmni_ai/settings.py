@@ -39,6 +39,21 @@ class Settings(BaseSettings):
     database_url: str = ""
     confirmation_ttl_seconds: int = 300
 
+    # Observability (docs/OBSERVABILITY.md). Off by default. The OTLP endpoint and headers use the standard
+    # OTEL_EXPORTER_OTLP_* variables, read by the OpenTelemetry SDK itself.
+    telemetry_enabled: bool = False
+    telemetry_backend: Literal["otlp", "console"] = "otlp"
+    telemetry_capture_content: bool = False  # prompts, answers, tool arguments/results in spans: synthetic data only
+    telemetry_export_timeout_seconds: float = 2.0
+    telemetry_shutdown_timeout_seconds: float = 5.0
+    telemetry_discovery_spans: Literal["errors-only", "all"] = "errors-only"
+    telemetry_discovery_slow_ms: int = 1000
+    # Value of gen_ai.conversation.id, the backend's session key. `off` (default): Pydantic AI's own random id, which
+    # already groups a conversation's turns; `raw`: our conversation id (dev, searchable); `hmac`: keyed hash of it
+    # (needs TELEMETRY_SESSION_KEY).
+    telemetry_session_id: Literal["off", "raw", "hmac"] = "off"
+    telemetry_session_key: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -86,6 +86,9 @@ class ServerConfig(_Strict):
     auth: AuthConfig = NoAuth(type="none")
     tools: ToolsPolicy = Field(default_factory=ToolsPolicy)
     requiredPrivilege: str | None = None  # noqa: N815 - server-wide default for matched tools
+    # Send W3C trace context (traceparent) to this server. Off unless the server is trusted: the receiver learns trace
+    # ids and, if it exports traces to the same backend, its own error text lands next to ours.
+    propagateTrace: bool = False  # noqa: N815
 
     @field_validator("url")
     @classmethod

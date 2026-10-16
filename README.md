@@ -11,7 +11,7 @@ and so on), with a choice of model providers (OpenAI, Anthropic, Ollama, and oth
   [standard-config](https://github.com/Bahmni/standard-config) (`ai/mcp-servers.json`). Adding a server needs no code.
 - Switching model provider is a configuration change (`AI_MODEL`).
 
-More docs: [Operator guide](docs/OPERATIONS.md) · [Where each piece lives](docs/REPOS.md) ·
+More docs: [Operator guide](docs/OPERATIONS.md) · [Observability design](docs/OBSERVABILITY.md) · [Where each piece lives](docs/REPOS.md) ·
 [Plan and status](docs/PLAN.md) · [Stage 0 spike result](docs/STAGE0_SPIKE_RESULT.md)
 
 ## How it fits into Bahmni
@@ -40,7 +40,7 @@ published on a host port in a Bahmni deployment.
 ## Develop
 
 ```bash
-uv sync                          # install dependencies (creates .venv)
+uv sync                          # install dependencies (creates .venv; dev group includes the telemetry packages)
 uv run pytest                    # tests (add TEST_DATABASE_URL=postgresql+asyncpg://... to include Postgres)
 uv run ruff check .              # lint
 uv run mypy src                  # type check (strict)
@@ -159,6 +159,70 @@ Only variables starting with `MCP_` can be referenced. The service refuses to st
 or a referenced credential is not set. Full rules, auth types and the security model are in
 [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
+## Telemetry (optional)
+
+Traces and metrics (OpenTelemetry over OTLP) for model calls, tool calls and HTTP, with OpenLIT as the viewer. Off by
+default; with it off nothing changes. Prompts, answers, tool data, user names, cookies and error text from MCP servers or
+providers are **not** exported. Design and evidence: [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
+
+**1. Start the backend** (separate Docker project, pinned OpenLIT 2.1.0 + ClickHouse; add `DOCKER_CONTEXT=<ctx>` to pick a Docker context):
+
+```bash
+cd deploy/openlit
+cp .env.example .env.local          # untracked. Set OPENLIT_DB_PASSWORD (any long random string) and OPENLIT_ADMIN_EMAIL
+docker compose --env-file .env.local up -d
+cd ../..
+uv run --with bcrypt python deploy/openlit/harden.py     # once: replaces OpenLIT's default login, checks registration is blocked
+```
+UI: <http://127.0.0.1:3300>, sign in with `OPENLIT_ADMIN_EMAIL` and the `OPENLIT_ADMIN_PASSWORD` that `harden.py` stored in
+`deploy/openlit/.env.local`. OTLP endpoint for the service: `http://127.0.0.1:4318` (loopback only by default).
+
+**2. Point the service at it** (pick one):
+
+```bash
+# a) local process
+TELEMETRY_ENABLED=true OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 \
+AI_MODEL=test MCP_CONFIG_PATH=dev-config/mcp-servers.json OPENMRS_URL=http://localhost:8080 \
+uv run python -m bahmni_ai.server
+
+# b) standalone dev compose (container reaches the host's OpenLIT through host.docker.internal)
+TELEMETRY_ENABLED=true OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318 \
+docker compose -f docker-compose.dev.yml up --build
+
+# c) inside Bahmni: in bahmni-docker/bahmni-standard/.env set
+#      TELEMETRY_ENABLED=true
+#      OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318     (or the OpenLIT host's internal address)
+#    then recreate the service
+cd bahmni-docker/bahmni-standard && docker compose --profile emr --profile bahmni-ai up -d bahmni-ai
+```
+The log line `telemetry_enabled` confirms it started; `telemetry_disabled` (with a reason) means a misconfiguration, and the
+service keeps running without telemetry. If the backend needs OTLP headers (a secret), put `OTEL_EXPORTER_OTLP_HEADERS` in the
+untracked `BAHMNI_AI_MCP_ENV_FILE`, never in `.env`. If OpenLIT runs on another host, set `OPENLIT_OTLP_BIND` in
+`deploy/openlit/.env.local` to that machine's internal address; the OTLP receivers have no authentication.
+
+**3. Use it:** send a chat message, then open the OpenLIT UI and look at traces and metrics for service `bahmni-ai`
+(spans `invoke_agent`, `chat`, `execute_tool`, `tools/call`; token and latency metrics). To check without the UI:
+
+```bash
+cd deploy/openlit
+echo "SELECT SpanName, count() FROM otel_traces WHERE ServiceName='bahmni-ai' GROUP BY SpanName" |
+  docker compose --env-file .env.local exec -T clickhouse sh -c \
+  'clickhouse-client --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" --database "$CLICKHOUSE_DATABASE"'
+```
+
+Each chat message is its own trace, and every turn of one conversation carries the same `session.id` (also set as
+`gen_ai.conversation.id`) on its request, agent, model and tool spans. OpenLIT 2.1.0 has no general "Sessions" screen, so
+group by that attribute: filter the trace list on it, or in SQL
+`SELECT TraceId, min(Timestamp) FROM otel_traces WHERE SpanAttributes['session.id'] = '<id>' GROUP BY TraceId ORDER BY 2`.
+The value is a random id by default; `TELEMETRY_SESSION_ID=raw|hmac` makes it derive from the UI conversation id.
+Failed tool calls show as ERROR on `execute_tool` (`bahmni.tool.outcome`), failed turns as ERROR on the request span
+(`bahmni.error.code`).
+
+**4. Operate:** retention settings, deleting data (`purge.py`), upgrades and stopping are in
+[deploy/openlit/README.md](deploy/openlit/README.md). Settings are in the table below and in
+[docs/OPERATIONS.md](docs/OPERATIONS.md#telemetry). Sending trace context to a trusted MCP server is opt-in per server
+(`"propagateTrace": true` in `ai/mcp-servers.json`); the default is off.
+
 ## Configuration reference (environment variables)
 
 | Variable | Default | Meaning |
@@ -173,6 +237,11 @@ or a referenced credential is not set. Full rules, auth types and the security m
 | `MCP_CALL_TIMEOUT_SECONDS` | `30` | Per tool call |
 | `AI_MAX_TOOL_STEPS` | `10` | Model/tool rounds per request |
 | `CONFIRMATION_TTL_SECONDS` | `300` | How long a pending confirmation stays valid |
+| `TELEMETRY_ENABLED` | `false` | OpenTelemetry traces and metrics (OTLP) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Required when telemetry is on (standard OpenTelemetry variable) |
+| `TELEMETRY_CAPTURE_CONTENT` | `false` | Prompts and tool data in spans; synthetic data only |
+| `TELEMETRY_EXPORT_TIMEOUT_SECONDS`, `TELEMETRY_SHUTDOWN_TIMEOUT_SECONDS` | `2`, `5` | Bound exports and container stop |
+| `TELEMETRY_DISCOVERY_SPANS` | `errors-only` | `all` keeps routine MCP discovery spans |
 | `PORT`, `LOG_LEVEL` | `8090`, `info` | |
 
 Tool results can contain clinical data and are sent to the model provider you choose. Use `ollama:` for local-only.
@@ -193,6 +262,7 @@ Events: `conversation`, `text`, `servers_unavailable`, `tool_started`, `tool_fin
 ```
 src/bahmni_ai/
   main.py, settings.py, logging.py, server.py
+  observability/  telemetry facade, scrubbing exporter, trace-context gate (only place that imports OpenTelemetry)
   api/        health, chat (SSE), request authentication
   auth/       OpenMRS session validation, user context, privilege checks
   agent/      Pydantic AI agent, chat service, events, history
@@ -200,6 +270,7 @@ src/bahmni_ai/
   audit/      structured audit log
   db/         Postgres stores
 tests/        pytest (real stub MCP servers over HTTP and stdio)
+deploy/       openlit/: pinned, hardened OpenLIT + ClickHouse for telemetry (separate deployment)
 spike/        Stage 0 proof of concept
 ```
 

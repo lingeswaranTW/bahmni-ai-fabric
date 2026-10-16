@@ -1,0 +1,38 @@
+{
+  "scenario": "env-none",
+  "propagators_env": "none",
+  "docs(trusted)": {
+    "server/discover": {
+      "requests": 4,
+      "with_meta_traceparent": 0,
+      "with_http_traceparent": 0
+    },
+    "tools/list": {
+      "requests": 4,
+      "with_meta_traceparent": 0,
+      "with_http_traceparent": 0
+    },
+    "tools/call": {
+      "requests": 1,
+      "with_meta_traceparent": 0,
+      "with_http_traceparent": 0
+    }
+  },
+  "jira(untrusted)": {
+    "server/discover": {
+      "requests": 2,
+      "with_meta_traceparent": 0,
+      "with_http_traceparent": 0
+    },
+    "tools/list": {
+      "requests": 2,
+      "with_meta_traceparent": 0,
+      "with_http_traceparent": 0
+    },
+    "tools/call": {
+      "requests": 1,
+      "with_meta_traceparent": 0,
+      "with_http_traceparent": 0
+    }
+  }
+}

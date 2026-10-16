@@ -25,6 +25,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.run import AgentRunResultEvent
 from pydantic_ai.usage import UsageLimits
 
+from bahmni_ai import observability
 from bahmni_ai.agent import history
 from bahmni_ai.agent.deps import AgentDeps
 from bahmni_ai.agent.events import (
@@ -93,7 +94,7 @@ class ChatService:
         cid = conversation_id or uuid.uuid4().hex
         yield ConversationStarted(cid)
         past = history.from_storage(await self._conversations.load(user.user_uuid, cid))
-        async for ev in self._run(user, cid, past, message, None):
+        async for ev in self._observed(self._run(user, cid, past, message, None)):
             yield ev
 
     async def confirm(
@@ -109,8 +110,15 @@ class ChatService:
             for a in actions
         })  # fmt: skip
         yield ConversationStarted(pending.conversation_id)
-        async for ev in self._run(user, pending.conversation_id, history.from_storage(pending.messages_json),
-                                  None, results):  # fmt: skip
+        past = history.from_storage(pending.messages_json)
+        async for ev in self._observed(self._run(user, pending.conversation_id, past, None, results)):
+            yield ev
+
+    @staticmethod
+    async def _observed(events: AsyncIterator[Event]) -> AsyncIterator[Event]:
+        async for ev in events:
+            if isinstance(ev, ErrorEvent):
+                observability.record_chat_error(ev.code)
             yield ev
 
     async def _run(
@@ -118,12 +126,16 @@ class ChatService:
         deferred: DeferredToolResults | None,
     ) -> AsyncIterator[Event]:  # fmt: skip
         deps = self._deps(user)
+        stored = next((m.conversation_id for m in reversed(past) if m.conversation_id), None)
+        session = observability.session_id(cid, stored)  # None when telemetry is off
+        observability.tag_session(session)
         try:
             async with self._registry.open(user) as opened:
                 if opened.unavailable:
                     yield ServersUnavailable(opened.unavailable)
                 async with self._agent.run_stream_events(
                     prompt, message_history=past, deferred_tool_results=deferred, deps=deps,
+                    conversation_id=session,  # same value on every turn of a conversation; None = telemetry off
                     toolsets=opened.toolsets,
                     usage_limits=UsageLimits(request_limit=self._settings.ai_max_tool_steps),
                 ) as events:  # fmt: skip
