@@ -248,10 +248,16 @@ Tool results can contain clinical data and are sent to the model provider you ch
 
 ## API
 
-Both endpoints answer with Server-Sent Events and require `X-OpenMRS-Session-Id` (added by bahmni-core).
+All endpoints except health require `X-OpenMRS-Session-Id` (added by bahmni-core). The two chat endpoints answer with
+Server-Sent Events; the conversation endpoints answer with JSON.
 
 - `POST /bahmni-ai/chat` body `{"message": "...", "conversationId": "optional"}`
 - `POST /bahmni-ai/chat/confirm` body `{"confirmationId": "...", "approved": true, "decisions": {"<actionId>": false}}`
+- `GET /bahmni-ai/conversations?limit=20&offset=0` the caller's conversations, most recent first: `{id, title, createdAt, updatedAt}`
+- `GET /bahmni-ai/conversations/{id}` the transcript: `messages: [{role, text, timestamp, tools?: [{server, tool}]}]`.
+  A view for the UI only (no tool arguments or results); the model is always fed the full stored history.
+- `DELETE /bahmni-ai/conversations/{id}` soft delete (hidden, row kept); `?hard=true` removes it permanently (also after a
+  soft delete). 204, or 404 for an unknown id or someone else's. Sending a chat with a deleted id starts a fresh conversation.
 - `GET /bahmni-ai/health`
 
 Events: `conversation`, `text`, `servers_unavailable`, `tool_started`, `tool_finished`, `confirmation_required`,

@@ -131,7 +131,7 @@ def test_history_is_private_to_each_user_and_omits_tool_results(client_factory, 
         store = c.app.state.chat_service._conversations
         import asyncio
         mine = asyncio.run(store.load("u-alice", cid))
-        assert mine is not None
+        assert isinstance(mine, list)  # plain JSON, not bytes
         returns = [p for m in history.from_storage(mine) for p in m.parts if isinstance(p, ToolReturnPart)]
         assert returns and all(r.content == "[tool result not stored]" for r in returns)
         assert asyncio.run(store.load("u-bob", cid)) is None
@@ -175,3 +175,51 @@ def test_invalid_request_bodies(client_factory, validator):
         assert c.post("/bahmni-ai/chat", json={"message": "x", "user": "root"}, headers=H).status_code == 422
         assert c.post("/bahmni-ai/chat", json={"message": "x", "conversationId": "../x"}, headers=H).status_code == 422
         assert sse(c.post("/bahmni-ai/chat", json={"message": "  "}, headers=H))[-1][1]["code"] == "invalid_request"
+
+
+@respx.mock
+def test_conversations_api_lists_reads_and_deletes_only_my_own(client_factory, validator):
+    validator.add("S1", "alice", ALL)
+    validator.add("S2", "bob", ALL)
+    respx.get(SESSION_URL).mock(side_effect=lambda req: httpx.Response(
+        200, json=user_json("alice" if "S1" in req.headers["cookie"] else "bob")))
+    bob = {"X-OpenMRS-Session-Id": "S2"}
+    with client_factory(scripted("docs__search", {"query": "canary-arg-123"})) as c:
+        cid = sse(c.post("/bahmni-ai/chat", json={"message": "find the policy"}, headers=H))[0][1]["conversationId"]
+
+        listed = c.get("/bahmni-ai/conversations", headers=H).json()["conversations"]
+        assert [x["id"] for x in listed] == [cid] and listed[0]["title"] == "find the policy"
+        assert c.get("/bahmni-ai/conversations", headers=bob).json()["conversations"] == []
+
+        got = c.get(f"/bahmni-ai/conversations/{cid}", headers=H).json()
+        assert [m["role"] for m in got["messages"]] == ["user", "assistant"]
+        assert got["messages"][0]["text"] == "find the policy"
+        assert got["messages"][1]["tools"] == [{"server": "docs", "tool": "search"}]
+        assert set(got["messages"][1]) == {"role", "text", "timestamp", "tools"}  # no tool arguments or results
+
+        assert c.get(f"/bahmni-ai/conversations/{cid}", headers=bob).status_code == 404
+        assert c.delete(f"/bahmni-ai/conversations/{cid}", headers=bob).status_code == 404
+
+        assert c.delete(f"/bahmni-ai/conversations/{cid}", headers=H).status_code == 204  # soft
+        assert c.get(f"/bahmni-ai/conversations/{cid}", headers=H).status_code == 404
+        assert c.get("/bahmni-ai/conversations", headers=H).json()["conversations"] == []
+        assert c.delete(f"/bahmni-ai/conversations/{cid}", headers=H).status_code == 404
+        assert c.delete(f"/bahmni-ai/conversations/{cid}?hard=true", headers=H).status_code == 204  # purge
+
+
+@respx.mock
+def test_continuing_a_deleted_conversation_starts_fresh(client_factory, validator):
+    validator.add("S1", "alice", ALL)
+    respx.get(SESSION_URL).mock(return_value=httpx.Response(200, json=user_json()))
+    with client_factory(scripted()) as c:
+        cid = sse(c.post("/bahmni-ai/chat", json={"message": "first secret"}, headers=H))[0][1]["conversationId"]
+        c.delete(f"/bahmni-ai/conversations/{cid}", headers=H)
+        sse(c.post("/bahmni-ai/chat", json={"message": "second", "conversationId": cid}, headers=H))
+        got = c.get(f"/bahmni-ai/conversations/{cid}", headers=H).json()
+    assert [m["text"] for m in got["messages"] if m["role"] == "user"] == ["second"]
+
+
+def test_conversations_api_requires_login_and_validates_input(client_factory):
+    with client_factory(scripted()) as c:
+        assert c.get("/bahmni-ai/conversations").status_code == 401
+        assert c.delete("/bahmni-ai/conversations/abc").status_code == 401

@@ -81,6 +81,10 @@ class ChatService:
         self._conversations, self._confirmations = conversations, confirmations
         self._privileges, self._audit, self._settings = privileges, audit, settings
 
+    @property
+    def conversations(self) -> ConversationStore:
+        return self._conversations
+
     def _deps(self, user: UserContext) -> AgentDeps:
         return AgentDeps(
             user=user, privileges=self._privileges, audit=self._audit,
@@ -198,8 +202,9 @@ class ChatService:
             yield ConfirmationRequired(cid_, ttl, actions)
             return
         await self._conversations.save(
-            user.user_uuid, cid, history.for_storage(messages, self._settings.history_tool_results)
-        )
+            user.user_uuid, cid, history.for_storage(messages, self._settings.history_tool_results),
+            history.title_of(messages),
+        )  # fmt: skip
 
 
 def _is_error(content: Any) -> bool:

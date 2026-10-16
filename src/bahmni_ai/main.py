@@ -14,7 +14,7 @@ from fastapi import APIRouter, FastAPI
 from bahmni_ai import observability
 from bahmni_ai.agent.factory import build_agent
 from bahmni_ai.agent.service import ChatService
-from bahmni_ai.api import chat, health
+from bahmni_ai.api import chat, conversations, health
 from bahmni_ai.audit.log import LogAuditSink
 from bahmni_ai.auth.privileges import PrivilegeChecker
 from bahmni_ai.auth.session import SessionValidator
@@ -78,6 +78,7 @@ def create_app(settings: Settings | None = None, *, chat_service: ChatService | 
     root = APIRouter(prefix=settings.service_path)
     root.include_router(health.router)
     root.include_router(chat.router)
+    root.include_router(conversations.router)
     app.include_router(root)
     observability.instrument_app(app)
     return app

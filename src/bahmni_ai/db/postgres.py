@@ -11,11 +11,12 @@ model-context JSON, and short-lived pending confirmations. Never credentials or 
 import time
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Float, LargeBinary, String, Text, delete, select
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+from sqlalchemy import JSON, DateTime, Float, Index, String, Text, delete, select, update
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from bahmni_ai.store import PendingConfirmation
+from bahmni_ai.store import ConversationRecord, ConversationSummary, Messages, PendingConfirmation
 
 
 class Base(DeclarativeBase):
@@ -26,13 +27,20 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+# JSONB on Postgres (queryable, validated by the database), plain JSON elsewhere (SQLite in tests).
+_JSON = JSON().with_variant(JSONB(), "postgresql")
+
+
 class ConversationRow(Base):
     __tablename__ = "ai_conversation"
     user_uuid: Mapped[str] = mapped_column(String(64), primary_key=True)
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    messages_json: Mapped[bytes] = mapped_column(LargeBinary)
+    messages_json: Mapped[Messages] = mapped_column(_JSON)
+    title: Mapped[str] = mapped_column(String(200), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    __table_args__ = (Index("ix_ai_conversation_user_updated", "user_uuid", "updated_at"),)
 
 
 class PendingRow(Base):
@@ -40,27 +48,69 @@ class PendingRow(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     user_uuid: Mapped[str] = mapped_column(String(64), index=True)
     conversation_id: Mapped[str] = mapped_column(String(64))
-    messages_json: Mapped[bytes] = mapped_column(LargeBinary)
+    messages_json: Mapped[Messages] = mapped_column(_JSON)
     actions_json: Mapped[str] = mapped_column(Text)
     expires_at: Mapped[float] = mapped_column(Float, index=True)
+
+
+def _summary(row: ConversationRow) -> ConversationSummary:
+    return ConversationSummary(row.id, row.title, row.created_at, row.updated_at)
 
 
 class PostgresConversationStore:
     def __init__(self, sessions: async_sessionmaker):  # type: ignore[type-arg]
         self._sessions = sessions
 
-    async def load(self, user_uuid: str, conversation_id: str) -> bytes | None:
+    async def _live(self, s: AsyncSession, user_uuid: str, conversation_id: str) -> ConversationRow | None:
+        row = await s.get(ConversationRow, (user_uuid, conversation_id))
+        return None if row is None or row.deleted_at is not None else row
+
+    async def load(self, user_uuid: str, conversation_id: str) -> Messages | None:
         async with self._sessions() as s:
-            row = await s.get(ConversationRow, (user_uuid, conversation_id))
+            row = await self._live(s, user_uuid, conversation_id)
             return row.messages_json if row else None
 
-    async def save(self, user_uuid: str, conversation_id: str, messages_json: bytes) -> None:
+    async def save(
+        self, user_uuid: str, conversation_id: str, messages_json: Messages, title: str | None = None
+    ) -> None:
         async with self._sessions.begin() as s:
             row = await s.get(ConversationRow, (user_uuid, conversation_id))
             if row is None:
-                s.add(ConversationRow(user_uuid=user_uuid, id=conversation_id, messages_json=messages_json))
+                s.add(ConversationRow(
+                    user_uuid=user_uuid, id=conversation_id, messages_json=messages_json, title=title or "",
+                ))  # fmt: skip
+            elif row.deleted_at is not None:  # a deleted id reused: a fresh conversation, nothing of the old one kept
+                row.messages_json, row.title = messages_json, title or ""
+                row.created_at = row.updated_at = _now()
+                row.deleted_at = None
             else:
                 row.messages_json = messages_json
+
+    async def list(self, user_uuid: str, limit: int, offset: int) -> list[ConversationSummary]:
+        async with self._sessions() as s:
+            rows = await s.scalars(
+                select(ConversationRow)
+                .where(ConversationRow.user_uuid == user_uuid, ConversationRow.deleted_at.is_(None))
+                .order_by(ConversationRow.updated_at.desc())
+                .limit(limit)
+                .offset(offset)
+            )
+            return [_summary(r) for r in rows]
+
+    async def get(self, user_uuid: str, conversation_id: str) -> ConversationRecord | None:
+        async with self._sessions() as s:
+            row = await self._live(s, user_uuid, conversation_id)
+            return ConversationRecord(_summary(row), row.messages_json) if row else None
+
+    async def delete(self, user_uuid: str, conversation_id: str, hard: bool) -> bool:
+        where = (ConversationRow.user_uuid == user_uuid, ConversationRow.id == conversation_id)
+        async with self._sessions.begin() as s:
+            if hard:  # also purges an already soft-deleted row
+                result = await s.execute(delete(ConversationRow).where(*where))
+            else:
+                live = ConversationRow.deleted_at.is_(None)
+                result = await s.execute(update(ConversationRow).where(*where, live).values(deleted_at=_now()))
+            return bool(result.rowcount)
 
 
 class PostgresConfirmationStore:

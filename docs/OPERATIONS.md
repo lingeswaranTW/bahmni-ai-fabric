@@ -73,7 +73,9 @@ writes. Switching providers needs only `AI_MODEL` and the provider's key variabl
 
 ## Known limits
 - Connections to MCP servers are opened per chat run (simple and isolates users); pooling is a future optimisation.
-- The schema is created with `create_all`; there is no migration tool yet.
+- The schema is created with `create_all`; there is no migration tool yet. `messages_json` is `jsonb` on Postgres (it was
+  `bytea` in 0.1.0 builds). `create_all` does not alter existing tables, so a dev database created earlier must be reset
+  once: `DROP TABLE ai_conversation, ai_pending_confirmation;` then restart `bahmni-ai`. This loses stored conversations.
 - Verify on your OpenMRS version that `/session` lists effective privileges (inherited roles). If not, privilege
   checks need another OpenMRS call. `System Developer` is treated as a super user.
 - Verify that `bahmni-proxy` (Apache) does not buffer SSE for `/openmrs/...`.
