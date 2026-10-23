@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Build image for scanning
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
         with: {context: ., push: false, load: true, tags: "bahmni/bahmni-ai:scan"}
       - name: Scan image (fail on fixable HIGH/CRITICAL)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
@@ -24,7 +24,7 @@ jobs:
           exit-code: "1"
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
         with: {username: "${{ secrets.DOCKERHUB_USERNAME }}", password: "${{ secrets.DOCKERHUB_TOKEN }}"}
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
         with:
           context: .
           push: true
