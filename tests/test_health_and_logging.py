@@ -19,3 +19,10 @@ def test_redaction():
     assert out["Authorization"] == REDACTED
     assert "XYZ" not in out["msg"] and "tok" not in out["msg"]
     assert out["ok"] == 1
+
+
+def test_token_counts_are_logged_but_credentials_are_still_redacted():
+    from bahmni_ai.logging import redact_value
+
+    out = redact_value({"input_tokens": 12, "output_tokens": 3, "access_token": "abc", "api_key": "k"})
+    assert out == {"input_tokens": 12, "output_tokens": 3, "access_token": "***", "api_key": "***"}

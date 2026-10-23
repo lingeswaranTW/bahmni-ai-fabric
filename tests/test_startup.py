@@ -39,7 +39,11 @@ def test_missing_config_file_stops_startup(tmp_path):
 
 def test_missing_credential_stops_startup_without_leaking(tmp_path, monkeypatch):
     monkeypatch.delenv("MCP_X_TOKEN", raising=False)
-    cfg = {"mcpServers": {"x": {"url": "https://x.example/mcp", "auth": {"type": "bearer", "credentialRef": "MCP_X_TOKEN"}}}}
+    cfg = {
+        "mcpServers": {
+            "x": {"url": "https://x.example/mcp", "auth": {"type": "bearer", "credentialRef": "MCP_X_TOKEN"}}
+        }
+    }
     with pytest.raises(ConfigError, match="MCP_X_TOKEN"), TestClient(create_app(settings(write(tmp_path, cfg)))):
         pass
 
@@ -60,8 +64,18 @@ def test_stdio_disabled_by_default(tmp_path):
 
 async def test_stdio_server_runs_shared_with_injected_credential():
     stub = str(Path(__file__).parent / "stdio_stub.py")
-    cfg = {"mcpServers": {"local": {"transport": "stdio", "command": sys.executable, "args": [stub],
-                                    "envRefs": {"LOCAL_TOKEN": "MCP_LOCAL_TOKEN"}, "tools": {"allow": ["ping"]}}}}
+    cfg = {
+        "mcpServers": {
+            "local": {
+                "transport": "stdio",
+                "command": sys.executable,
+                "args": [stub],
+                "envRefs": {"LOCAL_TOKEN": "MCP_LOCAL_TOKEN"},
+                "tools": {"allow": ["ping"]},
+                "trustToolAnnotations": True,
+            }
+        }
+    }
     r = EnvCredentialResolver(environ={"MCP_LOCAL_TOKEN": "tok"})
     config = parse_config(cfg, r, allow_stdio=True)
     await validate_credentials(config, r)
@@ -79,8 +93,18 @@ async def test_stdio_subprocess_does_not_inherit_service_secrets(monkeypatch, va
 
     monkeypatch.setenv("PARENT_SECRET_KEY", "must-not-leak")
     stub = str(Path(__file__).parent / "stdio_stub.py")
-    cfg = {"mcpServers": {"local": {"transport": "stdio", "command": sys.executable, "args": [stub],
-                                    "tools": {"allow": ["leaked"]}, "requiredPrivilege": "Use AI Chatbot"}}}
+    cfg = {
+        "mcpServers": {
+            "local": {
+                "transport": "stdio",
+                "command": sys.executable,
+                "args": [stub],
+                "tools": {"allow": ["leaked"]},
+                "requiredPrivilege": "Use AI Chatbot",
+                "trustToolAnnotations": True,
+            }
+        }
+    }
     r = EnvCredentialResolver(environ={})
     reg = McpRegistry(parse_config(cfg, r, allow_stdio=True), r, connect_timeout_seconds=20)
     await reg.start()

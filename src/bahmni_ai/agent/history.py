@@ -20,9 +20,9 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
+from bahmni_ai.db.store import Messages
 from bahmni_ai.logging import redact_value
 from bahmni_ai.mcp.config import TOOL_SEPARATOR
-from bahmni_ai.store import Messages
 
 StoreResults = Literal["none", "truncated", "full"]
 _OMITTED = "[tool result not stored]"
@@ -66,6 +66,38 @@ def to_json(messages: Sequence[ModelMessage]) -> Messages:
     return _to_json(messages)
 
 
+def estimate_tokens(message: ModelMessage) -> int:
+    """Rough size (about 4 characters per token); provider-neutral because exact counts need each vendor's tokenizer."""
+    return len(ModelMessagesTypeAdapter.dump_json([message])) // 4 + 1
+
+
+def _starts_turn(message: ModelMessage) -> bool:
+    return isinstance(message, ModelRequest) and any(isinstance(p, UserPromptPart) for p in message.parts)
+
+
+def trim_to_budget(messages: Sequence[ModelMessage], max_tokens: int) -> list[ModelMessage]:
+    """Drop the oldest whole turns until the history fits ``max_tokens`` (0 = keep everything).
+
+    A turn starts at a user prompt, so a tool call is never separated from its result (providers reject that). The most
+    recent turn is always kept, even if it alone is over budget: it is the one the user is waiting on.
+    """
+    msgs = list(messages)
+    if max_tokens <= 0:
+        return msgs
+    starts = [i for i, m in enumerate(msgs) if _starts_turn(m)]
+    if not starts:
+        return msgs
+    sizes = [estimate_tokens(m) for m in msgs]
+    keep_from = starts[-1]
+    total = sum(sizes[keep_from:])
+    for start in reversed(starts[:-1]):
+        added = sum(sizes[start:keep_from])
+        if total + added > max_tokens:
+            break
+        total, keep_from = total + added, start
+    return msgs[keep_from:]
+
+
 def title_of(messages: Sequence[ModelMessage], limit: int = 80) -> str:
     """First user message, shortened: the conversation's label in a list."""
     for msg in messages:
@@ -99,8 +131,10 @@ def to_transcript(messages: Sequence[ModelMessage]) -> list[dict[str, Any]]:
             for part in msg.parts:
                 if isinstance(part, UserPromptPart):
                     flush()
-                    content = part.content if isinstance(part.content, str) else " ".join(
-                        c for c in part.content if isinstance(c, str)
+                    content = (
+                        part.content
+                        if isinstance(part.content, str)
+                        else " ".join(c for c in part.content if isinstance(c, str))
                     )
                     out.append({"role": "user", "text": content, "timestamp": part.timestamp})
         elif isinstance(msg, ModelResponse):

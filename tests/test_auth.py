@@ -17,8 +17,15 @@ URL = "http://omrs:8080/openmrs/ws/rest/v1/session"
 
 
 def session_body(user="alice", privs=("Use AI Chatbot",), roles=()):
-    return {"authenticated": True, "user": {"uuid": f"uuid-{user}", "username": user,
-            "privileges": [{"name": p} for p in privs], "roles": [{"name": r} for r in roles]}}
+    return {
+        "authenticated": True,
+        "user": {
+            "uuid": f"uuid-{user}",
+            "username": user,
+            "privileges": [{"name": p} for p in privs],
+            "roles": [{"name": r} for r in roles],
+        },
+    }
 
 
 def make_app(validator):
@@ -100,8 +107,11 @@ async def test_cache_and_fresh_bypass(validator):
 
 @respx.mock
 async def test_cache_is_keyed_per_session_so_users_never_mix(validator):
-    respx.get(URL).mock(side_effect=lambda req: httpx.Response(
-        200, json=session_body("alice" if "A" in req.headers["cookie"] else "bob")))
+    respx.get(URL).mock(
+        side_effect=lambda req: httpx.Response(
+            200, json=session_body("alice" if "A" in req.headers["cookie"] else "bob")
+        )
+    )
     a = await validator.validate("A")
     b = await validator.validate("B")
     assert (a.username, b.username) == ("alice", "bob")

@@ -10,7 +10,14 @@ The service has no CORS and reads no browser cookies. Do not publish its port; k
 ## Configuration
 | Variable | Meaning |
 |---|---|
-| `AI_MODEL` | `provider:model`, for example `anthropic:claude-sonnet-5-5`, `openai:gpt-4o`, `ollama:llama3.2`. Provider keys use the standard variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OLLAMA_BASE_URL`). |
+| `AI_MODEL` | One or more comma-separated `provider:model` entries, tried in order (fallback), for example `anthropic:claude-sonnet-5-5` or `anthropic:claude-sonnet-5-5, openai:gpt-4o`. Provider keys use the standard variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OLLAMA_BASE_URL`). See [PROVIDERS.md](PROVIDERS.md). |
+| `AI_REQUEST_TIMEOUT_SECONDS`, `AI_MAX_RETRIES`, `AI_RETRY_BASE_DELAY_SECONDS`, `AI_RETRY_MAX_DELAY_SECONDS` | Model request timeout and retry/backoff of transient provider failures (defaults `60`, `2`, `1`, `20`). |
+| `AI_HISTORY_MAX_TOKENS`, `AI_MAX_TOTAL_TOKENS` | Approximate history budget sent to the model (default `32000`, `0` = off) and a hard per-request token cap (default `0` = off). |
+| `PROMPT_HUB_ENABLED`, `PROMPT_HUB_MODE`, `PROMPT_HUB_SOURCE`, `PROMPT_HUB_URL`, `PROMPT_HUB_PROMPT_NAME`, `PROMPT_HUB_PROMPT_VERSION`, `PROMPT_HUB_REFRESH_SECONDS`, `PROMPT_HUB_TIMEOUT_SECONDS`, `PROMPT_HUB_MAX_CHARS` | Optional system prompt from OpenLIT (or another service). Off by default; `append` (default) keeps the built-in safety prompt, `replace` swaps it entirely. Needs `OPENLIT_API_KEY` (secret: untracked env file). See [PROMPTS.md](PROMPTS.md). |
+| `UI_ACTIVITY_EVENTS` | Default `true`. Streams temporary `activity` events (what the assistant is doing: waiting for the model, thinking, running a tool, retrying a busy provider) so the UI can show progress and remove it when the reply is ready. Content-free; not stored. `false` switches them off. |
+| `HOST`, `PORT` | Listen address (default `127.0.0.1`; the image sets `0.0.0.0`) and port (`8090`). |
+| `SERVICE_PATH`, `OPENMRS_TIMEOUT_SECONDS`, `SESSION_CACHE_TTL_SECONDS` | URL prefix (`/bahmni-ai`), timeout of the OpenMRS session check (`5`), and how long a validated session and its privileges are cached (`30`; a revoked privilege can stay usable for that long). |
+| `CREDENTIAL_ALLOWLIST` | Extra variable names (beyond `MCP_*`) the configuration may reference. |
 | `OPENMRS_URL` | Base URL of OpenMRS for session validation. |
 | `MCP_CONFIG_PATH` | Default `/etc/bahmni_config/ai/mcp-servers.json` (from standard-config). Missing/invalid file stops startup. |
 | `MCP_*` | The only variables the configuration may reference: `${MCP_X_URL}` in `url`, and `credentialRef` names. Add others via `CREDENTIAL_ALLOWLIST=NAME1,NAME2`. |
@@ -32,8 +39,15 @@ See `ai/mcp-servers.example.json` in the standard-config repo (mirrored for test
   `openmrs-session` (the user's OpenMRS session is sent as `X-OpenMRS-Session-Id`; the MCP server must use it
   when calling OpenMRS, and must be first-party and on a trusted network).
 - **Discovery grants nothing.** A tool is visible only if matched by `allow` or `overrides` and not by `deny`.
-  A tool matched only by `allow` is treated as a read if the server marks it read-only (a hint from an untrusted
-  server), otherwise as a write that needs the server's `requiredPrivilege` and confirmation, otherwise hidden.
+  A tool matched only by `allow` is treated as a read only if the server has `trustToolAnnotations: true` and marks
+  the tool read-only; otherwise it is a write that needs the server's `requiredPrivilege` and confirmation (or hidden if
+  there is no privilege). For a server you do not control, list its read tools under `overrides` with `"access": "read"`
+  instead of trusting its annotations.
+- `trustToolAnnotations` (default `false`): believe the server's `readOnlyHint`/`destructiveHint`. A mislabelled tool
+  would skip the user's confirmation, so set `true` for first-party servers only.
+- Credentials and the user's session may only be sent over `https`, or `http` to `localhost`, `127.0.0.1`,
+  `host.docker.internal` or a single-label container name (for example `http://bahmni-fhir-mcp:8000`). Anything else
+  is rejected at startup.
 - `write` tools must set `confirm: true` and have a `requiredPrivilege` (tool or server level).
 - `propagateTrace` (default `false`): send W3C trace context (`traceparent`) to this server. Set `true` only for trusted,
   first-party servers; see [Telemetry](#telemetry).
@@ -62,14 +76,24 @@ Logs and audit records contain argument *names* and a hash, never values; secret
 
 ## API (SSE)
 `POST /bahmni-ai/chat {message, conversationId?}`, `POST /bahmni-ai/chat/confirm {confirmationId, approved?, decisions?}`.
-Events: `conversation`, `text`, `servers_unavailable`, `tool_started`, `tool_finished`, `confirmation_required`,
-`error` (`session_expired`, `openmrs_unavailable`, `provider_error`, `assistant_error`, `step_limit`, `timeout`,
+Events: `conversation`, `text`, `servers_unavailable`, `tool_started`, `tool_finished`, `activity`, `confirmation_required`,
+`error` (`session_expired`, `openmrs_unavailable`, `provider_error`, `rate_limited`, `assistant_error`, `step_limit`, `timeout`,
 `confirmation_expired`, `invalid_request`, `internal_error`), `done`.
+
+### `activity` events
+`{"id", "kind", "state", "server"?, "tool"?, "attempt"?}`; `kind` is `model` (waiting for the model), `thinking` (a reasoning
+part is streaming; models that expose no reasoning never send it), `tool` (a tool is running) or `retry` (the provider failed
+transiently, trying again). `state` is `started` or `finished`, paired by `id`. They are sent on transitions only, never per
+token. They contain no reasoning text, prompt, tool arguments or tool results, so they are safe to show to the user. The
+bahmni-apps-frontend chat shows them verbatim, one line per event, and keeps each line until the stream ends. Clients should
+remove every line when the stream ends (`done`, `error`, `confirmation_required`), not at the first `text`, because the model
+can write text between tool rounds. Older clients ignore the unknown event name.
 
 ## Provider differences to account for
 Tool-calling support, streaming behaviour, context size and structured-output reliability vary by model. Small local
 models may call tools poorly or ignore the tool-result-is-data rule: test your model with your tools before enabling
-writes. Switching providers needs only `AI_MODEL` and the provider's key variable.
+writes. Switching providers needs only `AI_MODEL` and the provider's key variable; retry, fallback, history budget
+and token caps are handled by the provider layer. See [PROVIDERS.md](PROVIDERS.md), including how to add a provider.
 
 ## Known limits
 - Connections to MCP servers are opened per chat run (simple and isolates users); pooling is a future optimisation.

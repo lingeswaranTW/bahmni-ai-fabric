@@ -1,0 +1,23 @@
+sequenceDiagram
+    autonumber
+    participant S as ChatService._produce
+    participant F as FallbackModel
+    participant R1 as RetryingModel(anthropic)
+    participant R2 as RetryingModel(openai)
+    participant L1 as Anthropic API
+    participant L2 as OpenAI API
+    participant U as UI
+    S->>F: request (AI_MODEL="anthropic:..., openai:...")
+    F->>R1: request
+    R1->>L1: call
+    L1-->>R1: 429 / 5xx / connection error (before streaming started)
+    R1-->>U: activity retry started (attempt n) via retry_listener
+    R1->>R1: sleep Retry-After or exponential backoff (max AI_MAX_RETRIES)
+    R1->>L1: call again
+    L1-->>R1: still failing
+    R1-->>F: ModelAPIError
+    F->>R2: next model
+    R2->>L2: call
+    L2-->>R2: stream
+    R2-->>S: stream
+    Note over S,U: if all fail: FallbackExceptionGroup -> error rate_limited (all 429) or provider_error. Once streaming has begun a failure is reported, never replayed.

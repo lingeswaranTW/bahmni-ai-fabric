@@ -152,7 +152,7 @@ Per tool call the policy wrapper does, in order: allowlist → argument validati
 ## Status (updated after implementation)
 | Stage | State | Evidence |
 |---|---|---|
-| 0 Spike | Done: GO | `docs/STAGE0_SPIKE_RESULT.md`, `spike/test_spike.py` |
+| 0 Spike | Done: GO | `docs/STAGE0_SPIKE_RESULT.md` |
 | 1 Skeleton, Docker, compose | Done | image builds; container ran against real Postgres (health + SSE chat) |
 | 1b bahmni-core proxy | Done (uncommitted) | `docs/REPOS.md`, 9 Java tests pass |
 | 2 Config + credentials | Done | `tests/test_config_credentials.py` |

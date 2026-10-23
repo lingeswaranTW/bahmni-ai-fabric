@@ -66,7 +66,9 @@ def free_port() -> int:
 @contextmanager
 def serve(label: str) -> Iterator[str]:
     port = free_port()
-    server = uvicorn.Server(uvicorn.Config(make_stub(label).http_app(stateless_http=True), port=port, log_level="error"))
+    server = uvicorn.Server(
+        uvicorn.Config(make_stub(label).http_app(stateless_http=True), port=port, log_level="error")
+    )
     t = threading.Thread(target=server.run, daemon=True)
     t.start()
     while not server.started:

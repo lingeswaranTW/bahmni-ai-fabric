@@ -1,6 +1,5 @@
 .venv
 .git
-spike
 tests
 .env
 __pycache__

@@ -17,9 +17,16 @@ SAMPLE = Path(__file__).parent / "fixtures/mcp-servers.example.json"
 
 
 def test_shipped_sample_config_is_valid():
-    env = {k: v for k, v in {
-        "MCP_DOCUMENTS_URL": "https://d/mcp", "MCP_DOCUMENTS_TOKEN": "t", "MCP_JIRA_URL": "https://j/mcp",
-        "MCP_JIRA_TOKEN": "t", "MCP_OPENMRS_URL": "https://o/mcp"}.items()}
+    env = {
+        k: v
+        for k, v in {
+            "MCP_DOCUMENTS_URL": "https://d/mcp",
+            "MCP_DOCUMENTS_TOKEN": "t",
+            "MCP_JIRA_URL": "https://j/mcp",
+            "MCP_JIRA_TOKEN": "t",
+            "MCP_OPENMRS_URL": "https://o/mcp",
+        }.items()
+    }
     cfg = load_config(SAMPLE, EnvCredentialResolver(environ=env))
     assert set(cfg.mcpServers) == {"documents", "jira", "openmrs"}
     text = SAMPLE.read_text()
@@ -42,9 +49,11 @@ def test_parallel_users_through_the_api_never_see_each_others_session(client_fac
     users = {f"SESS-{i}": f"user{i}" for i in range(6)}
     for s, n in users.items():
         validator.add(s, n, ALL)
-    respx.get(SESSION_URL).mock(side_effect=lambda req: httpx.Response(
-        200, json=user_json(users[req.headers["cookie"].split("=")[1]])))
+    respx.get(SESSION_URL).mock(
+        side_effect=lambda req: httpx.Response(200, json=user_json(users[req.headers["cookie"].split("=")[1]]))
+    )
     with client_factory(scripted("openmrs__whoami")) as c:
+
         def call(session):
             ev = sse(c.post("/bahmni-ai/chat", json={"message": "who"}, headers={"X-OpenMRS-Session-Id": session}))
             return session, "".join(d["delta"] for n, d in ev if n == "text")

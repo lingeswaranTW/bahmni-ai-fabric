@@ -9,7 +9,8 @@ from bahmni_ai.settings import get_settings
 
 
 def main() -> None:
-    uvicorn.run(create_app(), host="0.0.0.0", port=get_settings().port)
+    settings = get_settings()
+    uvicorn.run(create_app(settings), host=settings.host, port=settings.port)
 
 
 if __name__ == "__main__":

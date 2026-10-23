@@ -1,0 +1,26 @@
+flowchart TB
+    browser["Browser"] -->|HTTPS| proxy
+    subgraph host["Docker host - bahmni-docker/bahmni-standard (compose profile 'bahmni-ai' is opt-in)"]
+        proxy["bahmni-proxy"]
+        openmrs["openmrs container<br/>bahmni-core AiServiceController<br/>env BAHMNI_AI_SERVICE_URL=http://bahmni-ai:8090/bahmni-ai"]
+        ai["bahmni-ai container<br/>image bahmni/bahmni-ai:${BAHMNI_AI_IMAGE_TAG:-0.1.0}<br/>python -m bahmni_ai.server, PORT 8090, user uid 10001<br/>HEALTHCHECK curl /bahmni-ai/health"]
+        db[("bahmni-ai-db<br/>postgres:16<br/>volume bahmni-ai-db-data")]
+        cfgvol[/"config volume ${CONFIG_VOLUME}<br/>/etc/bahmni_config/ai/mcp-servers.json (ro)"/]
+        envfile[/"BAHMNI_AI_MCP_ENV_FILE (untracked)<br/>MCP_*_URL, MCP_*_TOKEN"/]
+        proxy --> openmrs
+        openmrs -->|"HTTP, no published port"| ai
+        ai -->|"GET /openmrs/ws/rest/v1/session"| openmrs
+        ai --> db
+        cfgvol -.-> ai
+        envfile -.-> ai
+    end
+    ai -->|HTTPS| llm["LLM provider API"]
+    ai -->|"streamable-http"| mcp["MCP servers (documents, fhir, confluence)"]
+    ai -.->|"OTLP/HTTP :4318, optional"| openlit
+    subgraph obs["Separate project: deploy/openlit/docker-compose.yml (name bahmni-openlit)"]
+        openlit["openlit 2.1.0 + otel collector<br/>127.0.0.1:4318, :4317"]
+        ch[("clickhouse 24.4.1")]
+        uiproxy["ui-proxy nginx 1.27.5<br/>127.0.0.1:3300, blocks self-registration"]
+        openlit --> ch
+        uiproxy --> openlit
+    end

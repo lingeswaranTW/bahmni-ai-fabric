@@ -1,0 +1,19 @@
+erDiagram
+    ai_conversation {
+        string user_uuid PK "String(64), OpenMRS user uuid"
+        string id PK "String(64), client or server generated"
+        json messages_json "JSONB on Postgres, JSON elsewhere"
+        string title "String(200)"
+        datetime created_at "timezone aware"
+        datetime updated_at "onupdate"
+        datetime deleted_at "NULL = live, soft delete marker"
+    }
+    ai_pending_confirmation {
+        string id PK "secrets.token_urlsafe(24)"
+        string user_uuid "indexed"
+        string conversation_id "logical reference, no FK"
+        json messages_json "full fidelity run state"
+        text actions_json "list of PendingAction as JSON text"
+        float expires_at "epoch seconds, indexed"
+    }
+    ai_conversation ||..o{ ai_pending_confirmation : "same user_uuid + conversation_id (not enforced)"

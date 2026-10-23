@@ -46,8 +46,10 @@ def scripted(tool=None, args=None):
 
 
 def user_json(name="alice", privs=ALL):
-    return {"authenticated": True, "user": {"uuid": f"u-{name}", "username": name,
-            "privileges": [{"name": p} for p in privs], "roles": []}}
+    return {
+        "authenticated": True,
+        "user": {"uuid": f"u-{name}", "username": name, "privileges": [{"name": p} for p in privs], "roles": []},
+    }
 
 
 H = {"X-OpenMRS-Session-Id": "S1"}
@@ -81,6 +83,7 @@ def test_tool_call_progress_events(client_factory, validator):
 @respx.mock
 def test_write_needs_confirmation_then_confirm_endpoint_executes(client_factory, validator):
     from tests import stubs
+
     validator.add("S1", "alice", ALL)
     respx.get(SESSION_URL).mock(return_value=httpx.Response(200, json=user_json()))
     with client_factory(scripted("jira__create_issue", {"title": "T", "project": "BAH"})) as c:
@@ -98,25 +101,47 @@ def test_write_needs_confirmation_then_confirm_endpoint_executes(client_factory,
 @respx.mock
 def test_rejecting_confirmation_runs_nothing(client_factory, validator):
     from tests import stubs
+
     validator.add("S1", "alice", ALL)
     respx.get(SESSION_URL).mock(return_value=httpx.Response(200, json=user_json()))
     with client_factory(scripted("jira__create_issue", {"title": "T", "project": "BAH"})) as c:
-        conf = [d for n, d in sse(c.post("/bahmni-ai/chat", json={"message": "x"}, headers=H)) if n == "confirmation_required"][0]
-        ev = sse(c.post("/bahmni-ai/chat/confirm", json={"confirmationId": conf["confirmationId"], "approved": False}, headers=H))
+        conf = [
+            d
+            for n, d in sse(c.post("/bahmni-ai/chat", json={"message": "x"}, headers=H))
+            if n == "confirmation_required"
+        ][0]
+        ev = sse(
+            c.post(
+                "/bahmni-ai/chat/confirm", json={"confirmationId": conf["confirmationId"], "approved": False}, headers=H
+            )
+        )
     assert "jira:create_issue" not in stubs.CALLS and ev[-1][0] == "done"
 
 
 @respx.mock
 def test_other_user_cannot_use_my_confirmation(client_factory, validator):
     from tests import stubs
+
     validator.add("S1", "alice", ALL)
     validator.add("S2", "mallory", ALL)
-    respx.get(SESSION_URL).mock(side_effect=lambda req: httpx.Response(
-        200, json=user_json("alice" if "S1" in req.headers["cookie"] else "mallory")))
+    respx.get(SESSION_URL).mock(
+        side_effect=lambda req: httpx.Response(
+            200, json=user_json("alice" if "S1" in req.headers["cookie"] else "mallory")
+        )
+    )
     with client_factory(scripted("jira__create_issue", {"title": "T", "project": "BAH"})) as c:
-        conf = [d for n, d in sse(c.post("/bahmni-ai/chat", json={"message": "x"}, headers=H)) if n == "confirmation_required"][0]
-        ev = sse(c.post("/bahmni-ai/chat/confirm", json={"confirmationId": conf["confirmationId"]},
-                        headers={"X-OpenMRS-Session-Id": "S2"}))
+        conf = [
+            d
+            for n, d in sse(c.post("/bahmni-ai/chat", json={"message": "x"}, headers=H))
+            if n == "confirmation_required"
+        ][0]
+        ev = sse(
+            c.post(
+                "/bahmni-ai/chat/confirm",
+                json={"confirmationId": conf["confirmationId"]},
+                headers={"X-OpenMRS-Session-Id": "S2"},
+            )
+        )
     assert ev[0][1]["code"] == "confirmation_expired" and "jira:create_issue" not in stubs.CALLS
 
 
@@ -124,12 +149,14 @@ def test_other_user_cannot_use_my_confirmation(client_factory, validator):
 def test_history_is_private_to_each_user_and_omits_tool_results(client_factory, validator):
     validator.add("S1", "alice", ALL)
     validator.add("S2", "bob", ALL)
-    respx.get(SESSION_URL).mock(side_effect=lambda req: httpx.Response(
-        200, json=user_json("alice" if "S1" in req.headers["cookie"] else "bob")))
+    respx.get(SESSION_URL).mock(
+        side_effect=lambda req: httpx.Response(200, json=user_json("alice" if "S1" in req.headers["cookie"] else "bob"))
+    )
     with client_factory(scripted("docs__search", {"query": "secret-patient"})) as c:
         cid = sse(c.post("/bahmni-ai/chat", json={"message": "q"}, headers=H))[0][1]["conversationId"]
         store = c.app.state.chat_service._conversations
         import asyncio
+
         mine = asyncio.run(store.load("u-alice", cid))
         assert isinstance(mine, list)  # plain JSON, not bytes
         returns = [p for m in history.from_storage(mine) for p in m.parts if isinstance(p, ToolReturnPart)]
@@ -156,6 +183,7 @@ def test_session_expiry_mid_run_is_reported(client_factory, validator):
 @respx.mock
 def test_provider_failure_becomes_clean_error(client_factory, validator):
     from pydantic_ai.exceptions import ModelHTTPError
+
     validator.add("S1", "alice", ALL)
     respx.get(SESSION_URL).mock(return_value=httpx.Response(200, json=user_json()))
 
@@ -181,8 +209,9 @@ def test_invalid_request_bodies(client_factory, validator):
 def test_conversations_api_lists_reads_and_deletes_only_my_own(client_factory, validator):
     validator.add("S1", "alice", ALL)
     validator.add("S2", "bob", ALL)
-    respx.get(SESSION_URL).mock(side_effect=lambda req: httpx.Response(
-        200, json=user_json("alice" if "S1" in req.headers["cookie"] else "bob")))
+    respx.get(SESSION_URL).mock(
+        side_effect=lambda req: httpx.Response(200, json=user_json("alice" if "S1" in req.headers["cookie"] else "bob"))
+    )
     bob = {"X-OpenMRS-Session-Id": "S2"}
     with client_factory(scripted("docs__search", {"query": "canary-arg-123"})) as c:
         cid = sse(c.post("/bahmni-ai/chat", json={"message": "find the policy"}, headers=H))[0][1]["conversationId"]
@@ -223,3 +252,43 @@ def test_conversations_api_requires_login_and_validates_input(client_factory):
     with client_factory(scripted()) as c:
         assert c.get("/bahmni-ai/conversations").status_code == 401
         assert c.delete("/bahmni-ai/conversations/abc").status_code == 401
+
+
+@respx.mock
+def test_model_sees_trimmed_history_but_storage_and_transcript_keep_everything(client_factory, validator):
+    validator.add("S1", "alice", ALL)
+    respx.get(SESSION_URL).mock(return_value=httpx.Response(200, json=user_json()))
+    seen: list[int] = []
+
+    async def stream(messages, info):
+        seen.append(len(messages))
+        yield "ok"
+
+    model = FunctionModel(stream_function=stream)
+    with client_factory(model, ai_history_max_tokens=1) as c:
+        cid = sse(c.post("/bahmni-ai/chat", json={"message": "one"}, headers=H))[0][1]["conversationId"]
+        for text in ("two", "three"):
+            sse(c.post("/bahmni-ai/chat", json={"message": text, "conversationId": cid}, headers=H))
+        # the model always gets the previous turn plus the new prompt; turn one is dropped from turn three on
+        assert seen == [1, 3, 3]
+        transcript = c.get(f"/bahmni-ai/conversations/{cid}", headers=H).json()["messages"]
+        assert [m["text"] for m in transcript if m["role"] == "user"] == ["one", "two", "three"]
+
+
+@respx.mock
+def test_rate_limited_provider_is_reported_without_provider_text(client_factory, validator):
+    from pydantic_ai.exceptions import ModelHTTPError
+
+    validator.add("S1", "alice", ALL)
+    respx.get(SESSION_URL).mock(return_value=httpx.Response(200, json=user_json()))
+
+    async def stream(messages, info):
+        raise ModelHTTPError(429, "m", body="PROVIDER-SECRET-TEXT")
+        yield ""  # pragma: no cover
+
+    with client_factory(FunctionModel(stream_function=stream)) as c:
+        r = c.post("/bahmni-ai/chat", json={"message": "hi"}, headers=H)
+        ev = sse(r)
+        assert ev[-1][0] == "error" or ev[-2][0] == "error"
+        assert any(n == "error" and d["code"] == "rate_limited" for n, d in ev)
+        assert "PROVIDER-SECRET-TEXT" not in r.text

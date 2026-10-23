@@ -2,6 +2,8 @@
 # If a copy of the MPL was not distributed with this file, You can obtain one at
 # https://www.bahmni.org/license/mplv2hd.
 
+import os
+
 import pytest
 
 from bahmni_ai.agent.deps import AgentDeps
@@ -53,8 +55,14 @@ def audit():
 @pytest.fixture
 def make_deps(validator, audit):
     def _make(user: UserContext, timeout: float = 5.0) -> AgentDeps:
-        return AgentDeps(user=user, privileges=PrivilegeChecker(validator), audit=audit,
-                         gate_privilege="Use AI Chatbot", call_timeout_seconds=timeout)
+        return AgentDeps(
+            user=user,
+            privileges=PrivilegeChecker(validator),
+            audit=audit,
+            gate_privilege="Use AI Chatbot",
+            call_timeout_seconds=timeout,
+        )
+
     return _make
 
 
@@ -71,6 +79,19 @@ def jira_url():
 
 
 @pytest.fixture(autouse=True)
+def _hermetic_settings(monkeypatch):
+    """Tests must not depend on a developer's .env or exported variables (a real DATABASE_URL made startup tests
+    try to reach Postgres). Settings fields are cleared from the environment and .env loading is switched off."""
+    from bahmni_ai.settings import Settings
+
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name.upper(), raising=False)
+    for name in [n for n in os.environ if n.startswith("OTEL_")]:
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _reset_calls():
     stubs.CALLS.clear()
 
@@ -81,15 +102,22 @@ def client_factory(docs_url, jira_url, validator, audit):
 
     from bahmni_ai.agent.factory import build_agent
     from bahmni_ai.agent.service import ChatService
+    from bahmni_ai.db.store import MemoryConfirmationStore, MemoryConversationStore
     from bahmni_ai.main import create_app
     from bahmni_ai.settings import Settings
-    from bahmni_ai.store import MemoryConfirmationStore, MemoryConversationStore
     from tests.test_registry_policy import registry
 
     def make(model, **settings_kw):
         settings = Settings(openmrs_url="http://omrs:8080", **settings_kw)
-        svc = ChatService(build_agent(model), registry(docs_url, jira_url), MemoryConversationStore(),
-                          MemoryConfirmationStore(), PrivilegeChecker(validator), audit, settings)
+        svc = ChatService(
+            build_agent(model),
+            registry(docs_url, jira_url),
+            MemoryConversationStore(),
+            MemoryConfirmationStore(),
+            PrivilegeChecker(validator),
+            audit,
+            settings,
+        )
         return TestClient(create_app(settings, chat_service=svc))
 
     return make

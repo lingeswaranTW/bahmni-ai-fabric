@@ -1,7 +1,7 @@
 # Observability Phase 0 spike: results
 
 Date: 2026-10-14. Scope: validate `docs/OBSERVABILITY.md` assumptions. **No application code changed**
-(`git diff` on `src/`, `pyproject.toml`, `uv.lock` is empty); spike code and raw results are in `spike/observability/`.
+(`git diff` on `src/`, `pyproject.toml`, `uv.lock` is empty); the spike code and raw results were removed from the repository after the decision (see git history).
 Synthetic data only. **Phase 1 not started; waiting for review.**
 
 ## Environment
@@ -137,7 +137,7 @@ Recorder middleware on the stub servers captured every JSON-RPC request.
 - No OTel Collector in between (direct OTLP/HTTP to OpenLIT's bundled collector); gRPC not used.
 - Stub MCP servers run in-process, so their server spans share the provider; wire-level propagation results are unaffected.
 - Latency numbers use a scripted model and local stubs; they show overhead differences, not production latency.
-- The scrubber is a prototype in `spike/`, not production code.
+- The spike scrubber was a prototype; the production one is `observability/scrub.py`.
 
 ## 8. Follow-ups from Phase 0b (found while preparing Phase 1)
 - The default login `user@openlit.io` / `openlituser` was exercised: it logged in. **OpenLIT also allows open self-registration**

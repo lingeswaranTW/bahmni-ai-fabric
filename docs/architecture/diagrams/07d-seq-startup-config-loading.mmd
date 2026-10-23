@@ -1,0 +1,27 @@
+sequenceDiagram
+    autonumber
+    participant UV as server.main (uvicorn)
+    participant CA as main.create_app
+    participant LS as lifespan
+    participant CFG as mcp.config.load_config
+    participant CR as EnvCredentialResolver
+    participant VC as mcp.auth.validate_credentials
+    participant RG as McpRegistry
+    participant DB as db.postgres.init_postgres_stores
+    participant PR as prompts.PromptResolver
+    UV->>CA: create_app(get_settings())  (env + .env)
+    CA->>CA: configure_logging, observability.setup (never fatal)
+    UV->>LS: startup
+    LS->>LS: httpx.AsyncClient + SessionValidator
+    LS->>CR: allowlist = CREDENTIAL_ALLOWLIST
+    LS->>CFG: read MCP_CONFIG_PATH (/etc/bahmni_config/ai/mcp-servers.json)
+    CFG->>CR: expand ${MCP_*} in url fields only
+    CFG->>CFG: pydantic validation (extra=forbid), stdio gate, TLS rule, write needs privilege
+    CFG-->>LS: McpConfig or ConfigError (startup aborts)
+    LS->>VC: every credentialRef / envRef must resolve (fail closed)
+    LS->>RG: start() (stdio servers only)
+    LS->>DB: DATABASE_URL set? create_engine + create_all (else in-memory, warning)
+    LS->>PR: build_resolver, start() initial fetch (optional hub)
+    LS->>LS: build_agent(AI_MODEL) with PromptRenderer.render as instructions
+    LS-->>UV: app.state.chat_service ready, serve requests
+    Note over LS: shutdown: close stores, prompt refresher, registry, telemetry (bounded)

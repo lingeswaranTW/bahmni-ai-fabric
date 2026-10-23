@@ -18,21 +18,23 @@ _JSESSION = re.compile(r"(?i)(jsessionid=)[^;\s]+")
 REDACTED = "***"
 
 
+def _is_sensitive(key: str) -> bool:
+    # "input_tokens" is a count, not a credential
+    return bool(_SENSITIVE_KEY.search(key)) and not key.endswith("_tokens")
+
+
 def redact_value(value: Any) -> Any:
     if isinstance(value, str):
         return _JSESSION.sub(r"\1" + REDACTED, _BEARER.sub(r"\1 " + REDACTED, value))
     if isinstance(value, dict):
-        return {k: (REDACTED if _SENSITIVE_KEY.search(str(k)) else redact_value(v)) for k, v in value.items()}
+        return {k: (REDACTED if _is_sensitive(str(k)) else redact_value(v)) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [redact_value(v) for v in value]
     return value
 
 
 def _redact_processor(_: Any, __: str, event_dict: MutableMapping[str, Any]) -> MutableMapping[str, Any]:
-    return {
-        k: (REDACTED if _SENSITIVE_KEY.search(k) and k != "event" else redact_value(v))
-        for k, v in event_dict.items()
-    }
+    return {k: (REDACTED if _is_sensitive(k) and k != "event" else redact_value(v)) for k, v in event_dict.items()}
 
 
 def _trace_processor(_: Any, __: str, event_dict: MutableMapping[str, Any]) -> MutableMapping[str, Any]:

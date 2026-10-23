@@ -1,0 +1,21 @@
+flowchart LR
+    subgraph auth["bahmni_ai.auth"]
+        sv["session.py: SessionValidator (30 s cache keyed by sha256(session id))"]
+        uc["context.py: UserContext (frozen)"]
+        pc["privileges.py: PrivilegeChecker.missing(fresh=)"]
+    end
+    subgraph db["bahmni_ai.db"]
+        st["store.py: Protocols + MemoryConversationStore, MemoryConfirmationStore"]
+        pg["postgres.py: PostgresConversationStore, PostgresConfirmationStore, ConversationRow, PendingRow, init_postgres_stores"]
+    end
+    subgraph audit["bahmni_ai.audit"]
+        al["log.py: ToolAudit, AuditSink, LogAuditSink, hash_arguments"]
+    end
+    openmrs[("OpenMRS /session")]
+    sv -->|httpx GET| openmrs
+    sv --> uc
+    pc --> sv
+    pg -.implements.-> st
+    mem["main._stores()"] -->|"DATABASE_URL set"| pg
+    mem -->|"empty"| st
+    al --> lg["logging.py: structlog + redaction"]

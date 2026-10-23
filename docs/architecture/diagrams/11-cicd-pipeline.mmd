@@ -1,0 +1,15 @@
+flowchart TD
+    dev["push / pull_request to main"] --> VP
+    subgraph VP["validate_pr.yml (also workflow_call)"]
+        t["job test: postgres:16 service, uv sync --frozen,<br/>ruff check, mypy src, pytest --cov-fail-under=90"]
+        a["job audit: uv export --extra telemetry, pip-audit"]
+    end
+    tag["push tag v*"] --> BP
+    subgraph BP["build_publish.yml"]
+        v["job validate: uses validate_pr.yml"] --> img
+        img["job image: docker build (load) -> trivy HIGH,CRITICAL, ignore-unfixed, exit 1<br/>-> docker login -> build-push bahmni/bahmni-ai:{tag} and :latest"]
+    end
+    man["workflow_dispatch (manual)"] --> LP["live_providers.yml: uv sync --extra gemini, pytest -m live (real, billable calls)"]
+    dep["Dependabot weekly: uv, github-actions, docker"] -.-> dev
+    img --> hub[("Docker Hub bahmni/bahmni-ai")]
+    hub --> compose["bahmni-docker: image bahmni/bahmni-ai:${BAHMNI_AI_IMAGE_TAG:-0.1.0}"]

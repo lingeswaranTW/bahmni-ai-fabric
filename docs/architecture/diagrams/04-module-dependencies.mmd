@@ -1,0 +1,16 @@
+flowchart TD
+    server["server.py"] --> main["main.py"]
+    server --> settings["settings.py"]
+    main --> api & agent & mcp & db & prompts & providers & observability & audit & auth & logging & settings
+    api --> agent & auth & db & mcp & logging & settings
+    agent --> audit & auth & db & mcp & observability & providers & logging & settings
+    mcp --> agent & audit & auth & observability & urlsafety & logging
+    prompts --> agent & urlsafety & settings & logging
+    providers --> logging
+    providers -.->|"smoke.py only"| agent & auth
+    observability --> logging & settings
+    logging -.->|"lazy import in _trace_processor"| observability
+    audit --> logging
+    auth --> logging
+    classDef cyc stroke:#c0392b,stroke-width:2px;
+    class agent,mcp cyc;

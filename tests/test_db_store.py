@@ -9,12 +9,14 @@ import time
 import pytest
 
 from bahmni_ai.db.postgres import Base, init_postgres_stores
-from bahmni_ai.store import PendingConfirmation
+from bahmni_ai.db.store import PendingConfirmation
 
 PG = os.environ.get("TEST_DATABASE_URL")  # e.g. postgresql+asyncpg://user:pw@localhost:55432/db
 
 
-@pytest.fixture(params=["sqlite", pytest.param("postgres", marks=pytest.mark.skipif(not PG, reason="no TEST_DATABASE_URL"))])
+@pytest.fixture(
+    params=["sqlite", pytest.param("postgres", marks=pytest.mark.skipif(not PG, reason="no TEST_DATABASE_URL"))]
+)
 async def stores(request, tmp_path):
     url = f"sqlite+aiosqlite:///{tmp_path}/t.db" if request.param == "sqlite" else PG
     s = await init_postgres_stores(url)

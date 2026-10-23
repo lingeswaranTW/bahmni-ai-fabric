@@ -17,6 +17,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from bahmni_ai.mcp.credentials import EnvCredentialResolver
+from bahmni_ai.urlsafety import is_private_or_tls
 
 SERVER_NAME = re.compile(r"^[a-z][a-z0-9-]*$")  # no underscores, so "server__tool" is unambiguous
 TOOL_SEPARATOR = "__"
@@ -50,9 +51,7 @@ class OpenmrsSessionAuth(_Strict):
     type: Literal["openmrs-session"]
 
 
-AuthConfig = Annotated[
-    NoAuth | BearerAuth | ApiKeyHeaderAuth | OpenmrsSessionAuth, Field(discriminator="type")
-]
+AuthConfig = Annotated[NoAuth | BearerAuth | ApiKeyHeaderAuth | OpenmrsSessionAuth, Field(discriminator="type")]
 
 
 class ToolOverride(_Strict):
@@ -89,6 +88,9 @@ class ServerConfig(_Strict):
     # Send W3C trace context (traceparent) to this server. Off unless the server is trusted: the receiver learns trace
     # ids and, if it exports traces to the same backend, its own error text lands next to ours.
     propagateTrace: bool = False  # noqa: N815
+    # Believe the server's own readOnlyHint/destructiveHint. Off by default: a third-party server could label a write
+    # tool read-only and skip the user's confirmation. Turn on for first-party servers only.
+    trustToolAnnotations: bool = False  # noqa: N815
 
     @field_validator("url")
     @classmethod
@@ -102,6 +104,11 @@ class ServerConfig(_Strict):
         if self.transport == "streamable-http":
             if not self.url:
                 raise ValueError("url is required for streamable-http")
+            if self.auth.type != "none" and not is_private_or_tls(self.url):
+                raise ValueError(
+                    "credentials or the user's session may only be sent over https, or over http to localhost, "
+                    "host.docker.internal or a single-label container name"
+                )
             if self.command or self.args or self.envRefs:
                 raise ValueError("command/args/envRefs are only valid for stdio")
         else:

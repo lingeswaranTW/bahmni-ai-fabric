@@ -16,7 +16,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from bahmni_ai.store import ConversationRecord, ConversationSummary, Messages, PendingConfirmation
+from bahmni_ai.db.store import ConversationRecord, ConversationSummary, Messages, PendingConfirmation
 
 
 class Base(DeclarativeBase):

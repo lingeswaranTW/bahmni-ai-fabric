@@ -1,0 +1,9 @@
+stateDiagram-v2
+    [*] --> Pending: ChatService._finish stores PendingConfirmation (ttl = CONFIRMATION_TTL_SECONDS, default 300)
+    Pending --> Consumed: POST /chat/confirm -> ConfirmationStore.take (atomic, single use)
+    Pending --> Expired: expires_at passed
+    Expired --> [*]: take() returns None, error confirmation_expired. Row purged on next put()
+    Consumed --> Executed: action approved (decisions[id] or approved)
+    Consumed --> Denied: ToolDenied "The user declined this action."
+    Executed --> [*]: run resumes, conversation saved
+    Denied --> [*]: model told the user declined

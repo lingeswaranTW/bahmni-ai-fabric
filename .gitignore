@@ -10,3 +10,6 @@ __pycache__/
 .coverage
 htmlcov/
 *.sqlite
+.idea/
+.DS_Store
+requirements.audit.txt

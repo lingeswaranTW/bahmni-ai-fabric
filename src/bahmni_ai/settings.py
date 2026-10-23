@@ -6,14 +6,16 @@
 
 from functools import lru_cache
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", case_sensitive=False)
 
+    host: str = "127.0.0.1"  # the container image sets HOST=0.0.0.0
     port: int = 8090
     log_level: str = "info"
     service_path: str = Field("/bahmni-ai", description="URL prefix, like /template-service")
@@ -21,9 +23,49 @@ class Settings(BaseSettings):
     openmrs_timeout_seconds: float = 5.0
     session_cache_ttl_seconds: float = 30.0
 
+    # One or more comma-separated provider:model entries, tried in order (docs/PROVIDERS.md).
     ai_model: str = "anthropic:claude-sonnet-5-5"
     ai_request_timeout_seconds: float = 60.0
     ai_max_tool_steps: int = 10
+    # Retry of transient provider failures (429, 5xx, connection errors) before the request has started streaming.
+    ai_max_retries: int = Field(2, ge=0, le=10)
+    ai_retry_base_delay_seconds: float = Field(1.0, ge=0)
+    ai_retry_max_delay_seconds: float = Field(20.0, ge=0)
+    # Approximate token budget for the stored history sent to the model (oldest whole turns are dropped first;
+    # storage keeps everything). Lower it for small-context local models. 0 disables trimming.
+    ai_history_max_tokens: int = Field(32000, ge=0)
+    # Hard cap on tokens (input + output) one request may use across all its model/tool rounds. 0 = no cap.
+    ai_max_total_tokens: int = Field(0, ge=0)
+
+    # Optional external source for the system prompt (docs/PROMPTS.md). Off by default.
+    prompt_hub_enabled: bool = False
+    # An adapter name. Credentials come from the adapter's own variable (OpenLIT: OPENLIT_API_KEY), not from here.
+    prompt_hub_source: str = "openlit"
+    # append: built-in safety prompt is kept and the hub text added after it. replace: the hub text is the whole prompt.
+    prompt_hub_mode: Literal["append", "replace"] = "append"
+    prompt_hub_url: str = ""
+    prompt_hub_prompt_name: str = ""
+    prompt_hub_prompt_version: str = ""  # empty = the source's latest
+    prompt_hub_refresh_seconds: float = Field(300.0, ge=5)
+    prompt_hub_timeout_seconds: float = Field(3.0, gt=0)
+    prompt_hub_max_chars: int = Field(8000, ge=100)
+
+    # Stream temporary "what the assistant is doing" events (activity) to the UI. Content-free; see agent/events.py.
+    ui_activity_events: bool = True
+
+    # Clinic time zone (IANA name) used for the date/time the model is told (docs/PROMPTS.md#placeholders).
+    timezone: str = "UTC"
+    # Append a "Current date and time" line when the final prompt has no date placeholder.
+    ai_inject_datetime: bool = True
+
+    @field_validator("timezone")
+    @classmethod
+    def _known_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"TIMEZONE '{value}' is not an IANA time zone name (for example Asia/Kolkata)") from exc
+        return value
 
     mcp_config_path: str = "/etc/bahmni_config/ai/mcp-servers.json"
     mcp_allow_stdio: bool = False

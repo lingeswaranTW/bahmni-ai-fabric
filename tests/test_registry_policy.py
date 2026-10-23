@@ -27,6 +27,7 @@ def registry(docs_url, jira_url, **overrides):
                 "url": docs_url,
                 "auth": {"type": "bearer", "credentialRef": "MCP_DOCS_TOKEN"},
                 "tools": {"allow": ["search", "whoami"]},
+                "trustToolAnnotations": True,
                 "requiredPrivilege": "Get Documents",
             },
             "jira": {
@@ -36,16 +37,26 @@ def registry(docs_url, jira_url, **overrides):
                     "allow": ["search"],
                     "deny": ["delete_*"],
                     "overrides": {
-                        "create_issue": {"access": "write", "confirm": True, "requiredPrivilege": "AI: Create Issue",
-                                         "argumentConstraints": {"project": ["BAH", "OPS"]}},
+                        "create_issue": {
+                            "access": "write",
+                            "confirm": True,
+                            "requiredPrivilege": "AI: Create Issue",
+                            "argumentConstraints": {"project": ["BAH", "OPS"]},
+                        },
                         "flaky_write": {"access": "write", "confirm": True, "requiredPrivilege": "AI: Create Issue"},
                         "slow_write": {"access": "write", "confirm": True, "requiredPrivilege": "AI: Create Issue"},
                     },
                 },
                 "requiredPrivilege": "Get Issues",
+                "trustToolAnnotations": True,
             },
-            "openmrs": {"url": docs_url, "auth": {"type": "openmrs-session"},
-                        "tools": {"allow": ["whoami"]}, "requiredPrivilege": "Get Patients"},
+            "openmrs": {
+                "url": docs_url,
+                "auth": {"type": "openmrs-session"},
+                "tools": {"allow": ["whoami"]},
+                "requiredPrivilege": "Get Patients",
+                "trustToolAnnotations": True,
+            },
             **overrides,
         }
     }
@@ -59,6 +70,7 @@ def model_calling(tool: str, args: dict | None = None):
         if rets:
             return ModelResponse(parts=[TextPart(str(rets[-1].content))])
         return ModelResponse(parts=[ToolCallPart(tool, args or {})])
+
     return FunctionModel(fn)
 
 
@@ -74,8 +86,12 @@ async def run_approved(reg, user, deps, tool, args=None):
         r = await agent.run("go", deps=deps, toolsets=opened.toolsets)
         assert isinstance(r.output, DeferredToolRequests)
         approvals = {c.tool_call_id: True for c in r.output.approvals}
-        return await agent.run(message_history=r.all_messages(), deps=deps, toolsets=opened.toolsets,
-                               deferred_tool_results=DeferredToolResults(approvals=approvals))
+        return await agent.run(
+            message_history=r.all_messages(),
+            deps=deps,
+            toolsets=opened.toolsets,
+            deferred_tool_results=DeferredToolResults(approvals=approvals),
+        )
 
 
 ALL = ("Use AI Chatbot", "Get Documents", "Get Issues", "Get Patients", "AI: Create Issue")
@@ -136,13 +152,20 @@ async def test_write_requires_confirmation_then_executes_once(docs_url, jira_url
     reg = registry(docs_url, jira_url)
     deps = make_deps(u)
     async with reg.open(u) as opened:
-        agent = Agent(model_calling("jira__create_issue", {"title": "T", "project": "BAH"}), deps_type=AgentDeps,
-                      output_type=[str, DeferredToolRequests])
+        agent = Agent(
+            model_calling("jira__create_issue", {"title": "T", "project": "BAH"}),
+            deps_type=AgentDeps,
+            output_type=[str, DeferredToolRequests],
+        )
         r = await agent.run("go", deps=deps, toolsets=opened.toolsets)
         assert isinstance(r.output, DeferredToolRequests) and stubs.CALLS.get("jira:create_issue") is None
         call = r.output.approvals[0]
-        r2 = await agent.run(message_history=r.all_messages(), deps=deps, toolsets=opened.toolsets,
-                             deferred_tool_results=DeferredToolResults(approvals={call.tool_call_id: True}))
+        r2 = await agent.run(
+            message_history=r.all_messages(),
+            deps=deps,
+            toolsets=opened.toolsets,
+            deferred_tool_results=DeferredToolResults(approvals={call.tool_call_id: True}),
+        )
     assert "jira:created:BAH:T" in r2.output and stubs.CALLS["jira:create_issue"] == 1
 
 
@@ -151,20 +174,31 @@ async def test_write_rechecks_privilege_fresh_after_approval(docs_url, jira_url,
     reg = registry(docs_url, jira_url)
     deps = make_deps(u)
     async with reg.open(u) as opened:
-        agent = Agent(model_calling("jira__create_issue", {"title": "T", "project": "BAH"}), deps_type=AgentDeps,
-                      output_type=[str, DeferredToolRequests])
+        agent = Agent(
+            model_calling("jira__create_issue", {"title": "T", "project": "BAH"}),
+            deps_type=AgentDeps,
+            output_type=[str, DeferredToolRequests],
+        )
         r = await agent.run("go", deps=deps, toolsets=opened.toolsets)
         validator.add("S1", "alice", ("Use AI Chatbot", "Get Issues"))  # privilege revoked in between
         call = r.output.approvals[0]
-        r2 = await agent.run(message_history=r.all_messages(), deps=deps, toolsets=opened.toolsets,
-                             deferred_tool_results=DeferredToolResults(approvals={call.tool_call_id: True}))
+        r2 = await agent.run(
+            message_history=r.all_messages(),
+            deps=deps,
+            toolsets=opened.toolsets,
+            deferred_tool_results=DeferredToolResults(approvals={call.tool_call_id: True}),
+        )
     assert "privilege" in r2.output.lower() and stubs.CALLS.get("jira:create_issue") is None
 
 
 async def test_argument_constraint_blocks_other_projects(docs_url, jira_url, validator, make_deps):
     u = validator.add("S1", "alice", ALL)
-    res = await run(registry(docs_url, jira_url), u, make_deps(u), "jira__create_issue", {"title": "T", "project": "SECRET"})
-    assert isinstance(res.output, str) and "not permitted" in res.output and stubs.CALLS.get("jira:create_issue") is None
+    res = await run(
+        registry(docs_url, jira_url), u, make_deps(u), "jira__create_issue", {"title": "T", "project": "SECRET"}
+    )
+    assert (
+        isinstance(res.output, str) and "not permitted" in res.output and stubs.CALLS.get("jira:create_issue") is None
+    )
 
 
 async def test_failed_write_runs_once_and_error_is_redacted(docs_url, jira_url, validator, make_deps):
@@ -176,14 +210,18 @@ async def test_failed_write_runs_once_and_error_is_redacted(docs_url, jira_url, 
 
 async def test_write_timeout_is_not_retried_and_reports_unknown(docs_url, jira_url, validator, make_deps, audit):
     u = validator.add("S1", "alice", ALL)
-    res = await run_approved(registry(docs_url, jira_url), u, make_deps(u, timeout=0.5), "jira__slow_write", {"title": "T"})
+    res = await run_approved(
+        registry(docs_url, jira_url), u, make_deps(u, timeout=0.5), "jira__slow_write", {"title": "T"}
+    )
     assert "unknown" in res.output.lower() and stubs.CALLS["jira:slow_write"] == 1
     assert audit.entries[-1].outcome == "timeout"
 
 
 async def test_server_down_is_isolated(docs_url, jira_url, validator, make_deps):
     u = validator.add("S1", "alice", ALL)
-    reg = registry(docs_url, jira_url, dead={"url": f"http://127.0.0.1:{stubs.free_port()}/mcp", "tools": {"allow": ["x"]}})
+    reg = registry(
+        docs_url, jira_url, dead={"url": f"http://127.0.0.1:{stubs.free_port()}/mcp", "tools": {"allow": ["x"]}}
+    )
     names, unavailable = await tools_visible(reg, make_deps(u))
     assert unavailable == ["dead"] and "docs__search" in names
 

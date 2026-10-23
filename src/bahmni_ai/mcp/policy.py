@@ -49,8 +49,11 @@ def resolve_tool(server: ServerConfig, tool: str, annotations: dict[str, Any] | 
         )  # fmt: skip
     if not matches(policy.allow, tool):
         return None
-    # Annotations come from the (untrusted) server, so they may only make us *more* careful.
-    if (annotations or {}).get("readOnlyHint") is True and (annotations or {}).get("destructiveHint") is not True:
+    # Annotations are claims made by the MCP server. A read-only claim skips confirmation, so it is honoured only
+    # for servers the operator marked trustToolAnnotations. Otherwise an allowed tool needs confirmation (or an
+    # explicit "overrides" entry saying it is a read).
+    hints = annotations or {}
+    if server.trustToolAnnotations and hints.get("readOnlyHint") is True and hints.get("destructiveHint") is not True:
         return ResolvedTool("read", False, server.requiredPrivilege)
     if server.requiredPrivilege:
         return ResolvedTool("write", True, server.requiredPrivilege)

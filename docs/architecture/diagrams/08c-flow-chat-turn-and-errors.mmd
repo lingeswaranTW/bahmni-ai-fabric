@@ -1,0 +1,17 @@
+flowchart TD
+    A["ChatService.chat"] --> B{"message empty or > 8000 chars?"}
+    B -->|yes| E0["error invalid_request"]
+    B -->|no| C["conversation event, load + trim history"]
+    C --> D["_produce task: open MCP servers, run agent"]
+    D --> X{"outcome"}
+    X -->|"final text"| S["save conversation (redacted), then done"]
+    X -->|"DeferredToolRequests"| CR["store PendingConfirmation, confirmation_required, then done"]
+    X -->|SessionExpiredError| E1["error session_expired"]
+    X -->|OpenmrsUnavailableError| E2["error openmrs_unavailable"]
+    X -->|UsageLimitExceeded| E3["error step_limit"]
+    X -->|"ModelAPIError / FallbackExceptionGroup"| P{"all statuses 429?"}
+    P -->|yes| E4["error rate_limited"]
+    P -->|no| E5["error provider_error"]
+    X -->|UnexpectedModelBehavior| E6["error assistant_error"]
+    X -->|TimeoutError| E7["error timeout"]
+    X -->|other| E8["error internal_error (details only in logs)"]

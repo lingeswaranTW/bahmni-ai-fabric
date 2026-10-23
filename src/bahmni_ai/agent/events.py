@@ -50,6 +50,31 @@ class ToolFinished(Event):
 
 
 @dataclass
+class Activity(Event):
+    """Temporary progress line for the UI: what the assistant is doing right now.
+
+    Carries codes and ids only, never reasoning text, prompts, tool arguments or tool results (they can hold patient
+    data). The UI translates ``kind`` into text and removes every activity when the stream ends (done, error or
+    confirmation_required). Not stored; not part of the transcript.
+
+    kind: model (waiting for the model) | thinking (a reasoning part is streaming) | tool (running a tool) |
+    retry (the provider failed transiently, trying again; ``attempt`` is the retry number).
+    state: started | finished.
+    """
+
+    name = "activity"
+    id: str
+    kind: str
+    state: str
+    server: str | None = None
+    tool: str | None = None
+    attempt: int | None = None
+
+    def data(self) -> dict[str, Any]:
+        return {k: v for k, v in asdict(self).items() if v is not None}
+
+
+@dataclass
 class PendingAction:
     id: str
     server: str

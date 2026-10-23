@@ -1,0 +1,15 @@
+flowchart TB
+    cfgfile[("mcp-servers.json")] --> load["config.py: load_config, parse_config, McpConfig, ServerConfig, ToolsPolicy, ToolOverride"]
+    env[("MCP_* environment")] --> cred["credentials.py: EnvCredentialResolver"]
+    load -->|"expands ${MCP_*} in url"| cred
+    val["auth.py: validate_credentials (startup)"] --> cred
+    strat["auth.py: AuthStrategy: _None, _Bearer, _ApiKey, _OpenmrsSession"] --> cred
+    reg["registry.py: McpRegistry.start / open / close"] --> strat
+    reg --> load
+    reg -->|"wraps each server"| pol["policy.py: ServerToolset (WrapperToolset)"]
+    pol --> rt["policy.py: resolve_tool -> ResolvedTool"]
+    pol --> aud["audit.log: ToolAudit, LogAuditSink"]
+    pol --> priv["auth.privileges: PrivilegeChecker"]
+    pol --> obs["observability: record_tool_outcome, propagation_scope"]
+    reg --> fm["pydantic_ai.mcp.MCPToolset / fastmcp StdioTransport"]
+    url["urlsafety.is_private_or_tls"] --> load

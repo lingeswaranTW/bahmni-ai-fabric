@@ -1,0 +1,22 @@
+sequenceDiagram
+    autonumber
+    actor U as UI via bahmni-core
+    participant API as api.conversations
+    participant D as api.deps.current_user
+    participant ST as ConversationStore
+    participant H as agent.history
+    U->>API: GET /bahmni-ai/conversations?limit&offset
+    API->>D: validate session + gate privilege
+    API->>ST: list(user_uuid, limit, offset) WHERE deleted_at IS NULL ORDER BY updated_at DESC
+    API-->>U: {conversations[{id,title,createdAt,updatedAt}]}
+    U->>API: GET /conversations/{id}
+    API->>ST: get(user_uuid, id)
+    API->>H: to_transcript(from_storage(messages_json)) (no tool args or results)
+    API-->>U: summary + messages[]
+    U->>API: DELETE /conversations/{id}?hard=false|true
+    API->>ST: delete(user_uuid, id, hard)
+    alt not found or someone else's
+        API-->>U: 404 not_found
+    else
+        API-->>U: 204 (soft = deleted_at set, hard = row removed)
+    end

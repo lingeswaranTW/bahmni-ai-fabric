@@ -1,0 +1,30 @@
+sequenceDiagram
+    autonumber
+    actor U as Browser
+    participant P as bahmni-proxy
+    participant C as AiServiceController (bahmni-core)
+    participant A as api.deps.current_user
+    participant V as auth.session.SessionValidator
+    participant O as OpenMRS /session
+    U->>P: POST /openmrs/ws/rest/v1/bahmnicore/ai/chat (JSESSIONID cookie)
+    P->>C: forward
+    C->>C: isAuthenticated() and Context.hasPrivilege("Use AI Chatbot")
+    alt not allowed
+        C-->>U: 403 {"detail":{"code":"forbidden"}}
+    end
+    C->>A: POST /bahmni-ai/chat, header X-OpenMRS-Session-Id (cookie not forwarded)
+    A->>V: validate(header, request_id)
+    alt cache hit (TTL 30 s, key sha256(session id))
+        V-->>A: UserContext
+    else miss
+        V->>O: GET /openmrs/ws/rest/v1/session?v=custom:(...) Cookie JSESSIONID
+        O-->>V: authenticated, user uuid, privileges, roles
+        V-->>A: UserContext (cached)
+    end
+    alt 401/403 or not authenticated
+        A-->>C: 401 session_expired
+    else OpenMRS unreachable or other status
+        A-->>C: 502 openmrs_unavailable
+    else lacks gate privilege (unless role System Developer)
+        A-->>C: 403 forbidden
+    end

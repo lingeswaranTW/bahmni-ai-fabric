@@ -1,7 +1,7 @@
 # Stage 0 – Spike result: **GO for Pydantic AI**
 
 Versions tested: `pydantic-ai-slim 2.55.0`, `mcp 2.3.0`, `fastmcp-slim 4.1.0`, Python 3.13 (project supports >=3.11).
-Tests: `spike/test_spike.py` (5 passing, real streamable-HTTP stub MCP server).
+Tests: 5 spike tests against a real streamable-HTTP stub MCP server (code removed after the decision; see git history).
 
 | Requirement | Result |
 |---|---|

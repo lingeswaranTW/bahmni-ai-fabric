@@ -1,0 +1,12 @@
+flowchart TD
+    A["Tool discovered on MCP server<br/>ServerToolset.get_tools -> resolve_tool(server, tool, annotations)"] --> B{"matches tools.deny?<br/>(fnmatch)"}
+    B -->|yes| H["Hidden from the model"]
+    B -->|no| C{"entry in tools.overrides?"}
+    C -->|yes| D["Visible with the override's access, confirm,<br/>requiredPrivilege or server.requiredPrivilege, argumentConstraints"]
+    C -->|no| E{"matches tools.allow?"}
+    E -->|no| H
+    E -->|yes| F{"server.trustToolAnnotations and readOnlyHint true<br/>and destructiveHint not true?"}
+    F -->|yes| G["read, no confirm, privilege = server.requiredPrivilege (may be none)"]
+    F -->|no| I{"server.requiredPrivilege set?"}
+    I -->|yes| J["treated as write + confirm<br/>(even if it is only a search)"]
+    I -->|no| H

@@ -294,27 +294,44 @@ def _service(docs_url, jira_url, tool, docs_trusted, *, allow=("search",), privs
     from bahmni_ai.agent.factory import build_agent
     from bahmni_ai.agent.service import ChatService
     from bahmni_ai.auth.privileges import PrivilegeChecker
+    from bahmni_ai.db.store import MemoryConfirmationStore, MemoryConversationStore
     from bahmni_ai.mcp.config import parse_config
     from bahmni_ai.mcp.credentials import EnvCredentialResolver
     from bahmni_ai.mcp.registry import McpRegistry
-    from bahmni_ai.store import MemoryConfirmationStore, MemoryConversationStore
     from tests.conftest import FakeValidator, MemoryAudit
     from tests.test_chat_api import scripted
     from tests.test_registry_policy import ALL
 
     def server(url, priv, trusted):
-        return {"url": url, "auth": {"type": "none"}, "tools": {"allow": list(allow)}, "requiredPrivilege": priv,
-                "propagateTrace": trusted}
+        return {
+            "url": url,
+            "auth": {"type": "none"},
+            "tools": {"allow": list(allow)},
+            "requiredPrivilege": priv,
+            "propagateTrace": trusted,
+            "trustToolAnnotations": True,
+        }
 
-    cfg = {"mcpServers": {"docs": server(docs_url, "Get Documents", docs_trusted),
-                          "jira": server(jira_url, "Get Issues", False)}}
+    cfg = {
+        "mcpServers": {
+            "docs": server(docs_url, "Get Documents", docs_trusted),
+            "jira": server(jira_url, "Get Issues", False),
+        }
+    }
     resolver = EnvCredentialResolver(environ={})
     registry = McpRegistry(parse_config(cfg, resolver), resolver, connect_timeout_seconds=2, call_timeout_seconds=5)
     validator = FakeValidator()
     user = validator.add("S", "alice", ALL if privs is None else privs, uuid="u-alice")
     audit = MemoryAudit()
-    svc = ChatService(build_agent(model or scripted(tool, {"query": "x"})), registry, MemoryConversationStore(),
-                      MemoryConfirmationStore(), PrivilegeChecker(validator), audit, Settings(openmrs_url="http://o"))
+    svc = ChatService(
+        build_agent(model or scripted(tool, {"query": "x"})),
+        registry,
+        MemoryConversationStore(),
+        MemoryConfirmationStore(),
+        PrivilegeChecker(validator),
+        audit,
+        Settings(openmrs_url="http://o"),
+    )
     return svc, user, audit
 
 
@@ -385,13 +402,13 @@ def _timed_span(provider, name, *, status=StatusCode.OK, ms=1, method=None):
 
 def test_ok_discovery_spans_are_dropped_but_errors_and_slow_ones_stay():
     provider, mem = private_provider(slow_ms=500)
-    _timed_span(provider, "tools/list", method="tools/list")                       # dropped
-    _timed_span(provider, "MCP send server/discover")                              # dropped (matched by name)
-    _timed_span(provider, "MCP send initialize", method="initialize")              # dropped
+    _timed_span(provider, "tools/list", method="tools/list")  # dropped
+    _timed_span(provider, "MCP send server/discover")  # dropped (matched by name)
+    _timed_span(provider, "MCP send initialize", method="initialize")  # dropped
     _timed_span(provider, "tools/list", status=StatusCode.ERROR, method="tools/list")  # kept: error
-    _timed_span(provider, "tools/list", ms=900, method="tools/list")               # kept: slow
-    _timed_span(provider, "tools/call search", method="tools/call")                # kept: not discovery
-    _timed_span(provider, "execute_tool docs__search")                             # kept
+    _timed_span(provider, "tools/list", ms=900, method="tools/list")  # kept: slow
+    _timed_span(provider, "tools/call search", method="tools/call")  # kept: not discovery
+    _timed_span(provider, "execute_tool docs__search")  # kept
     kept = [(s.name, s.status.status_code) for s in mem.get_finished_spans()]
     assert [n for n, _ in kept] == ["tools/list", "tools/list", "tools/call search", "execute_tool docs__search"]
     assert kept[0][1] == StatusCode.ERROR
@@ -427,8 +444,17 @@ async def test_unreachable_server_is_still_visible_in_telemetry(telemetry):
     from tests.stubs import free_port
 
     resolver = EnvCredentialResolver(environ={})
-    cfg = {"mcpServers": {"gone": {"url": f"http://127.0.0.1:{free_port()}/mcp", "auth": {"type": "none"},
-                                   "tools": {"allow": ["search"]}, "requiredPrivilege": "x"}}}
+    cfg = {
+        "mcpServers": {
+            "gone": {
+                "url": f"http://127.0.0.1:{free_port()}/mcp",
+                "auth": {"type": "none"},
+                "tools": {"allow": ["search"]},
+                "requiredPrivilege": "x",
+                "trustToolAnnotations": True,
+            }
+        }
+    }
     registry = McpRegistry(parse_config(cfg, resolver), resolver, connect_timeout_seconds=1, call_timeout_seconds=2)
     with trace.get_tracer("test").start_as_current_span("probe"):
         async with registry.open(None) as opened:
@@ -436,7 +462,8 @@ async def test_unreachable_server_is_still_visible_in_telemetry(telemetry):
     spans = telemetry.flush()
     errored = [s for s in spans if s["status"] == str(StatusCode.ERROR)]
     assert [s["attributes"]["bahmni.server"] for s in errored] == ["gone"], (
-        "a failing server must leave an error span even though routine discovery spans are dropped")
+        "a failing server must leave an error span even though routine discovery spans are dropped"
+    )
     assert errored[0]["name"] == "bahmni_ai.mcp.unavailable" and errored[0]["description"] is None
     # the library's own discovery span for the failed attempt is status UNSET, so it is filtered like any routine one
     assert not [s for s in spans if "server/discover" in s["name"]]
@@ -476,7 +503,7 @@ def test_fastapi_spans_carry_no_session_or_url_secrets_and_health_is_excluded(te
     from bahmni_ai.agent.factory import build_agent
     from bahmni_ai.agent.service import ChatService
     from bahmni_ai.auth.privileges import PrivilegeChecker
-    from bahmni_ai.store import MemoryConfirmationStore, MemoryConversationStore
+    from bahmni_ai.db.store import MemoryConfirmationStore, MemoryConversationStore
     from tests.conftest import FakeValidator, MemoryAudit
     from tests.test_registry_policy import registry
 
@@ -484,8 +511,15 @@ def test_fastapi_spans_carry_no_session_or_url_secrets_and_health_is_excluded(te
     jira_url, s2 = serve_recording("jira", [])
     try:
         validator = FakeValidator()
-        svc = ChatService(build_agent(scripted()), registry(docs_url, jira_url), MemoryConversationStore(),
-                          MemoryConfirmationStore(), PrivilegeChecker(validator), MemoryAudit(), settings)
+        svc = ChatService(
+            build_agent(scripted()),
+            registry(docs_url, jira_url),
+            MemoryConversationStore(),
+            MemoryConfirmationStore(),
+            PrivilegeChecker(validator),
+            MemoryAudit(),
+            settings,
+        )
         app = create_app(settings, chat_service=svc)
         monkeypatch.setattr(observability, "_runtime", runtime)  # create_app() ran setup() with telemetry off
         observability.instrument_app(app)
@@ -493,8 +527,11 @@ def test_fastapi_spans_carry_no_session_or_url_secrets_and_health_is_excluded(te
             mock.route(host="127.0.0.1").pass_through()
             mock.get(SESSION_URL).mock(return_value=httpx.Response(200, json=user_json("alice")))
             client.get("/bahmni-ai/health")
-            resp = client.post("/bahmni-ai/chat", json={"message": f"hi {CANARY_PATIENT}"},
-                               headers={"X-OpenMRS-Session-Id": CANARY_SESSION, "Cookie": f"JSESSIONID={CANARY_SESSION}"})
+            resp = client.post(
+                "/bahmni-ai/chat",
+                json={"message": f"hi {CANARY_PATIENT}"},
+                headers={"X-OpenMRS-Session-Id": CANARY_SESSION, "Cookie": f"JSESSIONID={CANARY_SESSION}"},
+            )
             assert resp.status_code == 200
     finally:
         s1.should_exit = s2.should_exit = True
@@ -730,8 +767,11 @@ def test_tool_calls_are_counted_by_outcome(telemetry, _shared, monkeypatch, stub
     data = _shared[0].metrics.get_metrics_data()
     points = [
         (dict(p.attributes), p.value)
-        for rm in data.resource_metrics for sm in rm.scope_metrics for m in sm.metrics
-        if m.name == "bahmni_ai.tool.calls" for p in m.data.data_points
+        for rm in data.resource_metrics
+        for sm in rm.scope_metrics
+        for m in sm.metrics
+        if m.name == "bahmni_ai.tool.calls"
+        for p in m.data.data_points
     ]
     assert any(a.get("bahmni.outcome") == "error" and a.get("bahmni.server") == "docs" for a, _ in points)
     assert CANARY_SECRET not in str(points)
@@ -758,3 +798,13 @@ def test_provider_error_marks_the_llm_span_and_hides_the_provider_text(telemetry
     assert agent.status.status_code == StatusCode.ERROR and [e.name for e in agent.events] == ["exception"]
     assert root.status.status_code == StatusCode.ERROR and root.attributes["bahmni.error.code"] == "provider_error"
     assert CANARY_SECRET not in blob(span_dump(spans))
+
+
+async def test_prompt_from_the_hub_is_not_exported_in_spans():
+    provider, mem = private_provider()
+    hub_prompt = f"Operator rule mentioning {CANARY_PATIENT}"
+    agent = Agent(FunctionModel(lambda m, i: ModelResponse(parts=[TextPart("ok")])), instructions=lambda: hub_prompt)
+    agent.instrument = InstrumentationSettings(tracer_provider=provider, include_content=False, version=5)
+    await agent.run("hi")
+    spans = span_dump(mem.get_finished_spans())
+    assert spans and CANARY_PATIENT not in blob(spans)

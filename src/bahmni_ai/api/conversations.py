@@ -11,8 +11,8 @@ from fastapi import APIRouter, Depends, Path, Query, Request, Response
 from bahmni_ai.agent import history
 from bahmni_ai.api.deps import current_user, error
 from bahmni_ai.auth.context import UserContext
+from bahmni_ai.db.store import ConversationStore, ConversationSummary
 from bahmni_ai.logging import get_logger
-from bahmni_ai.store import ConversationStore, ConversationSummary
 
 router = APIRouter()
 log = get_logger("bahmni_ai.conversations")

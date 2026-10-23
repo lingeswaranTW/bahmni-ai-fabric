@@ -1,0 +1,16 @@
+flowchart TD
+    A["Stored history (full) from ConversationStore.load"] --> B["trim_to_budget(AI_HISTORY_MAX_TOKENS, ~4 chars/token)"]
+    B --> C{"budget 0?"}
+    C -->|yes| D["send everything"]
+    C -->|no| E["keep newest turn always,<br/>add older whole turns (turn = starts at a user prompt) while they fit"]
+    D --> M["model run"]
+    E --> M
+    M --> N["messages = full_history + new_messages (storage keeps everything)"]
+    N --> O{"HISTORY_TOOL_RESULTS"}
+    O -->|none default| P["ToolReturnPart.content = '[tool result not stored]'"]
+    O -->|truncated| Q["redact_value, cut to 2000 chars"]
+    O -->|full| R["unchanged"]
+    P --> Z["ConversationStore.save"]
+    Q --> Z
+    R --> Z
+    N -->|"confirmation needed"| F["history.to_json full fidelity -> ai_pending_confirmation"]

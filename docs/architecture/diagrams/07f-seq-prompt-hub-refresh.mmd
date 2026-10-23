@@ -1,0 +1,25 @@
+sequenceDiagram
+    autonumber
+    participant LS as lifespan
+    participant PR as PromptResolver
+    participant OL as OpenLITPromptSource
+    participant HUB as OpenLIT /api/prompt/get-compiled
+    participant RN as PromptRenderer
+    participant AG as Agent (instructions callable)
+    LS->>PR: start()
+    PR->>OL: fetch(PromptRef name, version)
+    OL->>HUB: POST shouldCompile=true, Bearer OPENLIT_API_KEY
+    HUB-->>OL: 200 {err, res}
+    OL-->>PR: FetchedPrompt(text, version)
+    PR->>PR: length <= PROMPT_HUB_MAX_CHARS else keep previous
+    loop every PROMPT_HUB_REFRESH_SECONDS (background task)
+        PR->>OL: fetch
+        alt failure
+            PR->>PR: keep last good prompt (or built-in)
+        end
+    end
+    Note over AG,RN: on every chat run
+    AG->>RN: render()
+    RN->>PR: current() (no I/O): append or replace mode
+    RN->>RN: fill {{current_datetime}} in TIMEZONE, else append date line
+    RN-->>AG: final instructions

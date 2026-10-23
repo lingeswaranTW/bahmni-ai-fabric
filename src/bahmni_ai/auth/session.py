@@ -91,7 +91,7 @@ class SessionValidator:
             user = body["user"] if body.get("authenticated") else None
         except (ValueError, KeyError, TypeError, AttributeError) as exc:
             raise OpenmrsUnavailableError("unexpected OpenMRS session response") from exc
-        log.debug("openmrs_session_response", request_id=request_id, body=body)  # LOG_LEVEL=debug only
+        log.debug("openmrs_session_response", request_id=request_id, authenticated=bool(user))  # no user data
         if not isinstance(user, dict) or not user.get("uuid"):
             raise SessionExpiredError("session is not authenticated")
         return UserContext(
