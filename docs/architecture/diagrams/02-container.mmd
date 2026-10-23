@@ -1,0 +1,22 @@
+C4Container
+    title Container diagram - bahmni-ai in a Bahmni deployment (C4 level 2)
+    Person(staff, "Clinic staff")
+    System_Boundary(bahmni, "Bahmni deployment (bahmni-docker / bahmni-standard)") {
+        Container(proxy, "bahmni-proxy", "Apache httpd", "Public entry point")
+        Container(openmrs, "openmrs (bahmni-core)", "Java, Spring", "AiServiceController: /openmrs/ws/rest/v1/bahmnicore/ai/*")
+        Container(ai, "bahmni-ai", "Python 3.12, FastAPI, uvicorn, Pydantic AI", "Port 8090, prefix /bahmni-ai")
+        ContainerDb(aidb, "bahmni-ai-db", "PostgreSQL 16", "ai_conversation, ai_pending_confirmation")
+        Container(cfg, "standard-config volume", "Files", "/etc/bahmni_config/ai/mcp-servers.json")
+    }
+    System_Ext(mcp, "MCP servers", "documents, fhir, confluence")
+    System_Ext(llm, "LLM provider")
+    System_Ext(otel, "OpenLIT / OTLP collector", "Optional")
+    Rel(staff, proxy, "HTTPS")
+    Rel(proxy, openmrs, "HTTP")
+    Rel(openmrs, ai, "Streams SSE", "HTTP, X-OpenMRS-Session-Id")
+    Rel(ai, openmrs, "GET /openmrs/ws/rest/v1/session", "JSESSIONID cookie")
+    Rel(ai, aidb, "SQLAlchemy async / asyncpg")
+    Rel(ai, cfg, "Reads at startup", "read-only mount")
+    Rel(ai, mcp, "MCP streamable-http")
+    Rel(ai, llm, "HTTPS")
+    Rel(ai, otel, "OTLP/HTTP", "only if TELEMETRY_ENABLED=true")

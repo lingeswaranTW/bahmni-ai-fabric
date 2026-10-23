@@ -1,0 +1,34 @@
+sequenceDiagram
+    autonumber
+    actor U as User (chat UI)
+    participant API as api.chat
+    participant S as ChatService
+    participant T as ServerToolset.call_tool
+    participant PC as PrivilegeChecker
+    participant CS as ConfirmationStore
+    participant M as MCP server
+    U->>API: POST /chat "create a FHIR Patient ..."
+    API->>S: chat(...)
+    S->>T: model asks fhir__create
+    T->>PC: missing(gate + 'AI: Access FHIR Data')
+    T->>T: rule.confirm and not tool_call_approved
+    T-->>S: raise ApprovalRequired (audit: confirmation_required)
+    S->>S: output is DeferredToolRequests
+    S->>CS: put(PendingConfirmation id, user_uuid, messages_json, actions_json, expires_at = now + 300 s)
+    S-->>U: event confirmation_required {confirmationId, expiresInSeconds, actions[server, tool, arguments]}
+    S-->>U: event done (ChatService._run always yields Done after the queue ends, no tool has executed yet)
+    U->>API: POST /chat/confirm {confirmationId, approved, decisions}
+    API->>S: confirm(user, id, approved, decisions)
+    S->>CS: take(user_uuid, id)  (DELETE ... RETURNING, single use)
+    alt unknown, other user's or expired
+        S-->>U: event error confirmation_expired
+    else found
+        S->>S: DeferredToolResults: True or ToolDenied per action
+        S->>T: resume run, tool_call_approved = true
+        T->>PC: missing(..., fresh=False)
+        T->>PC: missing(..., fresh=True) bypass cache for writes
+        T->>M: tools/call (once, with timeout)
+        M-->>T: result
+        T->>T: audit allowed/success
+        S-->>U: text, tool_finished, done
+    end

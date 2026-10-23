@@ -1,0 +1,36 @@
+flowchart LR
+    subgraph sc["standard-config repo"]
+        ai["ai/mcp-servers.json<br/>documents, fhir, confluence"]
+        aiex["ai/mcp-servers.example.json"]
+        aireadme["ai/README.md"]
+        dock["package/docker/Dockerfile<br/>COPY ai /etc/bahmni_config/ai"]
+        priv["masterdata/configuration/privileges/privileges.csv<br/>no AI privileges present"]
+        roles["masterdata/configuration/roles/roles.csv"]
+        other["openmrs/apps, i18n, forms, reports, templates,<br/>openelis, print-templates"]
+    end
+    subgraph code["bahmni-ai code"]
+        s["settings.Settings.mcp_config_path"]
+        lc["mcp.config.load_config -> McpConfig"]
+        rv["mcp.credentials.EnvCredentialResolver"]
+        rg["mcp.registry.McpRegistry"]
+        pl["mcp.policy.resolve_tool / ServerToolset"]
+        au["mcp.auth.build_strategy"]
+        gp["settings.gate_privilege + auth.session privileges"]
+    end
+    subgraph env["container environment"]
+        e1["MCP_DOCUMENTS_URL, MCP_FHIR_URL"]
+        e2["MCP_ATLASSIAN_TOKEN, other MCP_* credentials"]
+    end
+    ai --> dock
+    dock -->|"volume / image content"| s
+    s --> lc
+    e1 -->|"${VAR} in url"| lc
+    e2 -->|"credentialRef"| rv
+    lc --> rg
+    lc --> pl
+    lc --> au
+    rv --> au
+    au --> rg
+    priv -.->|"privileges named by requiredPrivilege must exist in OpenMRS"| gp
+    roles -.-> gp
+    other -.->|"consumed by OpenMRS / Bahmni apps, not by bahmni-ai"| x["(no bahmni-ai consumer)"]

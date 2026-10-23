@@ -1,0 +1,9 @@
+stateDiagram-v2
+    [*] --> Live: save() creates row (deleted_at NULL)
+    Live --> Live: save() on later turns (messages_json, updated_at)
+    Live --> SoftDeleted: DELETE /conversations/{id} sets deleted_at
+    SoftDeleted --> Live: save() with the same id (fresh conversation, old content overwritten)
+    SoftDeleted --> HardDeleted: DELETE ?hard=true
+    Live --> HardDeleted: DELETE ?hard=true
+    HardDeleted --> [*]
+    note right of SoftDeleted: invisible to load, get, list. No retention job removes these rows

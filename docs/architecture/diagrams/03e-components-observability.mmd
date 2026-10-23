@@ -1,0 +1,16 @@
+flowchart TB
+    facade["observability/__init__.py: setup, instrument_app, record_*, session_id, tag_session (never raise)"]
+    otel["_otel.py: build, Runtime, SafeSpanProcessor, instrument_fastapi, agent_instrumentation"]
+    scrub["scrub.py: ScrubbingExporter (allowlist, drops status text, drops OK discovery spans)"]
+    prop["propagation.py: propagation_scope, GatedPropagator"]
+    facade -->|"lazy import, only if TELEMETRY_ENABLED"| otel
+    otel --> scrub
+    otel --> prop
+    scrub --> exp["OTLP HTTP exporter or Console exporter"]
+    exp --> backend[("OpenLIT / collector")]
+    svc["agent.service"] --> facade
+    pol["mcp.policy"] --> facade
+    pol --> prop
+    reg["mcp.registry"] --> facade
+    fac["agent.factory"] --> facade
+    log["logging._trace_processor"] --> facade

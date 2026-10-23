@@ -1,0 +1,19 @@
+flowchart TD
+    S["ServerToolset.call_tool(name, args)"] --> R{"name in self.resolved?"}
+    R -->|no| D1["denied: unknown tool (audit)"]
+    R -->|yes| V{"jsonschema.validate(args, tool schema)"}
+    V -->|fail| IV["return error invalid_arguments (audit)"]
+    V -->|ok| AC{"argumentConstraints satisfied?"}
+    AC -->|no| D2["denied: argument not permitted (audit)"]
+    AC -->|yes| P{"PrivilegeChecker.missing(gate + tool privilege)<br/>validated against OpenMRS, cached up to 30 s"}
+    P -->|missing| D3["denied: permission_denied (audit)"]
+    P -->|ok| CF{"rule.confirm and not ctx.tool_call_approved?"}
+    CF -->|yes| AR["raise ApprovalRequired<br/>-> confirmation_required event"]
+    CF -->|no| W{"rule.access == write?"}
+    W -->|yes| FR{"missing(..., fresh=True)?"}
+    FR -->|missing| D4["denied at execution (audit)"]
+    FR -->|ok| EX
+    W -->|no| EX["execute once inside asyncio.timeout(MCP_CALL_TIMEOUT_SECONDS)"]
+    EX -->|TimeoutError| TO["return timeout error: result unknown, do not repeat"]
+    EX -->|exception| ER["return tool_failed with redacted message[:300]"]
+    EX -->|ok| OK["audit allowed/success, return result"]

@@ -1,0 +1,28 @@
+flowchart LR
+    subgraph api["bahmni_ai.api"]
+        chat["chat.py: POST /chat, POST /chat/confirm (EventSourceResponse)"]
+        conv["conversations.py: GET list, GET one, DELETE"]
+        health["health.py: GET /health"]
+        adeps["deps.py: current_user, request_id_of, error"]
+    end
+    subgraph agent["bahmni_ai.agent"]
+        svc["service.py: ChatService, _ActivityTracker"]
+        factory["factory.py: build_agent"]
+        hist["history.py: for_storage, trim_to_budget, to_transcript"]
+        ev["events.py: Event dataclasses"]
+        adp["deps.py: AgentDeps"]
+        sp["prompts.py: SYSTEM_PROMPT"]
+    end
+    main["main.py: create_app, lifespan"] --> chat & conv & health
+    chat --> adeps
+    conv --> adeps
+    chat --> svc
+    conv --> hist
+    svc --> hist
+    svc --> ev
+    svc --> adp
+    main --> factory
+    factory --> sp
+    adeps --> sess["auth.session.SessionValidator"]
+    svc --> reg["mcp.registry.McpRegistry"]
+    svc --> store["db.store: ConversationStore, ConfirmationStore"]

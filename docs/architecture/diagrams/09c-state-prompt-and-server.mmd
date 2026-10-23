@@ -1,0 +1,15 @@
+stateDiagram-v2
+    state "Prompt resolver" as PRS {
+        [*] --> Builtin: start (hub disabled or first fetch pending)
+        Builtin --> HubPrompt: refresh() succeeded
+        HubPrompt --> HubPrompt: refresh() succeeded (new text or version)
+        HubPrompt --> HubPrompt: refresh() failed, last good prompt kept
+        Builtin --> Builtin: refresh() failed
+    }
+    state "MCP server per chat run" as SRV {
+        [*] --> Connecting: McpRegistry.open
+        Connecting --> Available: auth headers built and initialised within connect timeout
+        Connecting --> Unavailable: any exception, listed in servers_unavailable
+        Available --> [*]: run ends, connection closed
+        Unavailable --> [*]
+    }

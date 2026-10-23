@@ -1,0 +1,87 @@
+%%{init: {"flowchart": {"curve": "linear", "nodeSpacing": 45, "rankSpacing": 45}}}%%
+flowchart TB
+    subgraph BOOT["STARTUP - fail closed, read once"]
+        direction LR
+        cfg["standard-config<br/>ai/mcp-servers.json"] --> ld["load_config<br/>validate, expand MCP_* urls"]
+        envv["container env<br/>Settings, MCP_* secrets"] --> ld
+        ld --> cred["validate_credentials"] --> reg["McpRegistry, stores,<br/>PromptResolver, build_agent"]
+    end
+
+    subgraph FRONT["BAHMNI FRONT DOOR"]
+        user(["1 Clinic user<br/>Bahmni UI"]) -->|"HTTPS + JSESSIONID"| proxy["2 bahmni-proxy"]
+        proxy --> core["3 openmrs / bahmni-core AiServiceController<br/>authenticates, checks 'Use AI Chatbot',<br/>forwards session as X-OpenMRS-Session-Id"]
+    end
+
+    subgraph AI["BAHMNI-AI  FastAPI :8090 /bahmni-ai"]
+        api["4 POST /chat or /chat/confirm"]
+        auth{"5 SessionValidator<br/>session valid and<br/>gate privilege?"}
+        reject["401 session_expired<br/>403 forbidden<br/>502 openmrs_unavailable"]
+        load["6 ChatService: load + trim history"]
+        open["7 open MCP servers<br/>per run, per user"]
+        run["8 run agent<br/>instructions = PromptRenderer"]
+        tool{"9 model calls a tool?"}
+        vis{"10 tool visible?<br/>deny, overrides, allow"}
+        val["11 validate arguments<br/>and constraints"]
+        priv{"12 gate + tool<br/>privilege held?"}
+        conf{"13 confirmation<br/>needed?"}
+        fresh["14 fresh privilege check<br/>writes only"]
+        exec["15 execute once<br/>timeout, never retried"]
+        audit["16 audit log tool_audit<br/>result back to model"]
+        denied["denied or hidden<br/>error result to model"]
+        appr["ApprovalRequired:<br/>store PendingConfirmation, TTL 300 s<br/>SSE confirmation_required"]
+        fin["17 final text<br/>save conversation, tool results redacted"]
+        done["18 SSE done"]
+
+        api --> auth
+        auth -->|no| reject
+        auth -->|yes| load --> open --> run --> tool
+        tool -->|yes| vis
+        vis -->|no| denied
+        vis -->|yes| val --> priv
+        priv -->|no| denied
+        priv -->|yes| conf
+        conf -->|"yes, not yet approved"| appr
+        conf -->|no| fresh --> exec --> audit
+        audit -->|"next model round"| run
+        denied -->|"next model round"| run
+        tool -->|"no, answer ready"| fin --> done
+    end
+
+    core ==>|"HTTP"| api
+    appr ==> done
+    done ==>|"SSE stream: text, activity,<br/>tool_*, confirmation_required, done"| ret["bahmni-core streams the reply<br/>back through bahmni-proxy"]
+    reject ==>|"error JSON"| ret
+    ret ==> user2(["Clinic user sees the answer<br/>word by word"])
+
+    omrs1[("OpenMRS /session<br/>user, roles, privileges")]
+    omrs2[("OpenMRS /session<br/>re-validate")]
+    pg1[("PostgreSQL<br/>ai_conversation")]
+    pg2[("PostgreSQL<br/>ai_pending_confirmation")]
+    pg3[("PostgreSQL<br/>ai_conversation")]
+    mcp1["MCP servers<br/>connect, discover tools"]
+    mcp2["MCP servers<br/>tools/call"]
+    llm["LLM provider<br/>Anthropic, OpenAI, Gemini,<br/>Ollama, compatible<br/>retry + fallback"]
+    otel["OpenLIT / OTLP<br/>optional, scrubbed"]
+    hub["OpenLIT prompt hub<br/>optional"]
+
+    auth -.->|"cache miss"| omrs1
+    load -.-> pg1
+    open -.-> mcp1
+    run <-.-> llm
+    priv -.-> omrs2
+    fresh -.-> omrs2
+    exec -.-> mcp2
+    appr -.-> pg2
+    fin -.-> pg3
+    run -.->|"spans, metrics"| otel
+    reg -.->|"wires app"| api
+    reg -.-> hub
+
+    classDef ext fill:#eef3ff,stroke:#4a6fd1,color:#111;
+    classDef store fill:#fff4e0,stroke:#d08a00,color:#111;
+    classDef bad fill:#fde8e8,stroke:#c0392b,color:#111;
+    classDef cfgc fill:#e9f7ef,stroke:#2e8b57,color:#111;
+    class omrs1,omrs2,mcp1,mcp2,llm,otel,hub ext;
+    class pg1,pg2,pg3 store;
+    class reject,denied bad;
+    class cfg,envv cfgc;

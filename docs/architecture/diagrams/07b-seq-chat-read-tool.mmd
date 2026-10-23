@@ -1,0 +1,40 @@
+sequenceDiagram
+    autonumber
+    participant API as api.chat.chat
+    participant S as agent.service.ChatService
+    participant ST as ConversationStore
+    participant R as mcp.registry.McpRegistry
+    participant AG as Pydantic AI Agent (RetryingModel)
+    participant T as mcp.policy.ServerToolset
+    participant PC as auth.privileges.PrivilegeChecker
+    participant M as MCP server
+    participant L as LLM provider
+    API->>S: chat(user, message, conversationId)
+    S-->>API: event conversation {conversationId}
+    S->>ST: load(user_uuid, cid)
+    S->>S: history.from_storage then trim_to_budget(AI_HISTORY_MAX_TOKENS)
+    S->>S: asyncio.create_task(_produce), events through asyncio.Queue
+    S->>R: open(user): per-run connections with auth headers
+    R-->>S: toolsets + unavailable list
+    opt some server failed to connect
+        S-->>API: event servers_unavailable
+    end
+    S->>AG: run_stream_events(prompt, history, toolsets, UsageLimits)
+    AG->>L: request (instructions rendered by PromptRenderer)
+    L-->>AG: stream parts
+    AG-->>S: PartDeltaEvent
+    S-->>API: event text {delta}
+    AG->>T: call_tool(server__tool, args)
+    S-->>API: event tool_started
+    T->>T: jsonschema validate + argumentConstraints
+    T->>PC: missing([gate, tool privilege])
+    PC-->>T: [] (cached session)
+    T->>M: tools/call (timeout MCP_CALL_TIMEOUT_SECONDS, never retried)
+    M-->>T: result
+    T->>T: audit.record(ToolAudit)
+    T-->>AG: result
+    S-->>API: event tool_finished {ok}
+    AG->>L: request with tool result
+    L-->>AG: final text
+    S->>ST: save(history.for_storage(messages, HISTORY_TOOL_RESULTS), title)
+    S-->>API: event done

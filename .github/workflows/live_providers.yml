@@ -1,0 +1,25 @@
+name: Live provider smoke test
+# Manual only: makes real, billable model calls with repository secrets. Not part of PR validation.
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: 'Comma-separated provider:model values, e.g. "anthropic:claude-sonnet-5-5,openai:gpt-4o"'
+        required: true
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      LIVE_PROVIDER_MODELS: ${{ inputs.models }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
+      OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86
+      - run: uv sync --frozen --extra gemini
+      - run: uv run pytest -m live -v tests/test_live_providers.py

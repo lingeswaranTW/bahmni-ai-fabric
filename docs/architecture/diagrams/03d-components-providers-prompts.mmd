@@ -1,0 +1,27 @@
+flowchart TB
+    subgraph providers["bahmni_ai.providers"]
+        base["base.py: ProviderAdapter, ProviderCapabilities, ProviderSettings"]
+        preg["registry.py: resolve_model, register, entry-point group bahmni_ai.providers"]
+        bi["builtin.py: PydanticAIAdapter x5 (openai, anthropic, gemini, ollama, test)"]
+        oc["openai_compat.py: OpenAICompatAdapter"]
+        rm["retry.py: RetryingModel, retry_listener"]
+        smoke["smoke.py: live smoke CLI"]
+    end
+    subgraph prompts["bahmni_ai.prompts"]
+        pb["base.py: PromptSource, PromptSourceAdapter"]
+        prg["registry.py: entry-point group bahmni_ai.prompt_sources"]
+        ol["openlit.py: OpenLITAdapter, OpenLITPromptSource"]
+        res["resolver.py: PromptResolver (background refresh)"]
+        ph["placeholders.py: PromptRenderer ({{current_datetime}})"]
+    end
+    factory["agent.factory.build_agent"] --> preg
+    preg --> bi & oc
+    preg -->|"wraps every model"| rm
+    preg -->|"2+ entries"| fb["pydantic_ai FallbackModel"]
+    main["main.lifespan"] --> bp["prompts.build_resolver"]
+    bp --> prg --> ol
+    bp --> res
+    res --> pb
+    main --> ph
+    ph -->|"callable: instructions"| factory
+    res -->|"current()"| ph
