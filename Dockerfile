@@ -1,4 +1,4 @@
-FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS build
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS build
 COPY --from=ghcr.io/astral-sh/uv:0.11.25 /uv /usr/local/bin/uv
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
@@ -6,7 +6,7 @@ COPY src/ ./src/
 # The telemetry extra is a no-op unless TELEMETRY_ENABLED=true (docs/OBSERVABILITY.md).
 RUN uv sync --frozen --no-dev --no-editable --extra telemetry
 
-FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 bahmniai
 WORKDIR /app
